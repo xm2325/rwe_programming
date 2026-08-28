@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "tests": "4/4",
+  "n": 9184,
+  "treated_fraction": 0.45132839721254353,
+  "max_abs_weighted_smd": 0.003400565358937375,
+  "effective_sample_size": 8791.06892909592,
+  "weighted_cox": {
+    "coef": 0.2112765171194655,
+    "hr": 1.2352538766847199,
+    "se": 0.05632675555508259
+  },
+  "note": "Fresh restoration run; not a reproduction of every historical v0.5.x number."
+}
