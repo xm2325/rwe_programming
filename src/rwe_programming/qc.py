@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .pipeline import COVARIATES, make_synthetic_cohort, propensity_weights, weighted_smd
+from .pipeline import COVARS, make_synthetic_cohort, propensity_weights, weighted_smd
 from .study_config import DEFAULT_CONFIG, StudyConfig
 
 
@@ -57,7 +57,7 @@ def cohort_attrition(df: pd.DataFrame, config: StudyConfig = DEFAULT_CONFIG) -> 
 def run_qc_registry(config: StudyConfig = DEFAULT_CONFIG) -> list[QCCheck]:
     raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
     df = propensity_weights(raw)
-    smds = {c: abs(weighted_smd(df, c)) for c in COVARIATES}
+    smds = {c: abs(weighted_smd(df, c)) for c in COVARS}
     max_smd = max(smds.values())
     ess = float(df["stabilized_weight"].sum() ** 2 / (df["stabilized_weight"] ** 2).sum())
     attrition = cohort_attrition(raw, config)
