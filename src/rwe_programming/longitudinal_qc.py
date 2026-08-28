@@ -9,7 +9,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from .longitudinal import LongitudinalStudyWindows, build_analysis_cohort_python, make_longitudinal_sources
+from .longitudinal import (
+    LongitudinalStudyWindows,
+    build_analysis_cohort_python,
+    make_longitudinal_source_population,
+)
 
 
 @dataclass(frozen=True)
@@ -28,7 +32,7 @@ def run_longitudinal_qc(
     seed: int = 20260817,
     windows: LongitudinalStudyWindows = LongitudinalStudyWindows(),
 ) -> list[LongitudinalQCCheck]:
-    sources = make_longitudinal_sources(n=n, seed=seed) if sources is None else sources
+    sources = make_longitudinal_source_population(n_eligible=n, seed=seed) if sources is None else sources
     patients = sources["patients"]
     enrollment = sources["enrollment"]
     diagnoses = sources["diagnoses"]
@@ -63,6 +67,9 @@ def run_longitudinal_qc(
     }
 
     expected_ucg = ((analysis.baseline_urate >= windows.uncontrolled_urate_threshold) | (analysis.prior_flares >= windows.uncontrolled_flare_threshold)).astype(int)
+    baseline_ckd_ids = set(diagnoses.loc[diagnoses.code.eq("BASELINE_CKD"), "patient_id"].astype(int).tolist())
+    analysis_ids = set(analysis.patient_id.astype(int).tolist())
+    excluded_ckd_count = len(baseline_ckd_ids)
 
     return [
         LongitudinalQCCheck("LQ001", "Patient identifiers are unique", bool(patients.patient_id.is_unique), str(patients.patient_id.nunique()), str(len(patients))),
@@ -80,6 +87,7 @@ def run_longitudinal_qc(
         LongitudinalQCCheck("LQ013", "Incident outcomes do not extend beyond observed enrollment", bool(outcomes_within_enrollment), f"violations={int((out_window.outcome_date > out_window.enrollment_end).sum()) if len(out_window) else 0}", "0"),
         LongitudinalQCCheck("LQ014", "Analysis follow-up is strictly positive and within horizon", bool((analysis.followup_years > 0).all() and (analysis.followup_years <= windows.followup_days / 365.25 + 1e-12).all()), f"range=[{analysis.followup_years.min():.6f}, {analysis.followup_years.max():.6f}]", f">0 and <={windows.followup_days / 365.25:.6f}"),
         LongitudinalQCCheck("LQ015", "Exposure classification is reproducible from baseline urate/flares", bool(np.array_equal(expected_ucg.to_numpy(), analysis.ucg.to_numpy())), f"mismatches={int((expected_ucg.to_numpy() != analysis.ucg.to_numpy()).sum())}", "0"),
+        LongitudinalQCCheck("LQ016", "Baseline CKD patients are present in source history and excluded from analysis", bool(excluded_ckd_count > 0 and baseline_ckd_ids.isdisjoint(analysis_ids) and len(analysis) == n), f"baseline_ckd_source={excluded_ckd_count}; analysis_n={len(analysis)}", f"baseline_ckd_source>0; analysis_n={n}; overlap=0"),
     ]
 
 
