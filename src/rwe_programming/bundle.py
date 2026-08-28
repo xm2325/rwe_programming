@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .deliverables import write_deliverables
 from .independent_cox import reconcile_cox
-from .longitudinal import build_analysis_cohort_python, make_longitudinal_sources
+from .longitudinal import build_analysis_cohort_python, make_longitudinal_source_population
 from .longitudinal_qc import write_longitudinal_qc_manifest
 from .longitudinal_validation import reconcile_longitudinal_builders
 from .metadata import data_dictionary_frame
@@ -47,7 +47,7 @@ def build_reviewer_bundle(
 
     longitudinal_dir = out / "longitudinal_sources"
     longitudinal_dir.mkdir(exist_ok=True)
-    sources = make_longitudinal_sources(n=config.n_patients, seed=config.seed)
+    sources = make_longitudinal_source_population(n_eligible=config.n_patients, seed=config.seed)
     source_inventory = {}
     for name, frame in sources.items():
         source_path = longitudinal_dir / f"{name}.csv"
