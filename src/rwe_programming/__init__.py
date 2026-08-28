@@ -5,6 +5,7 @@ from .pipeline import (
     run_pipeline,
     weighted_smd,
 )
+from .analysis import prepare_weighted_analysis, summarise_analysis
 from .validation import (
     sql_pandas_reconciliation,
     omop_shape_reconciliation,
@@ -45,6 +46,8 @@ __all__ = [
     "weighted_smd",
     "fit_weighted_cox",
     "run_pipeline",
+    "prepare_weighted_analysis",
+    "summarise_analysis",
     "weighted_kaplan_meier",
     "survival_at_times",
     "sql_pandas_reconciliation",
