@@ -4,10 +4,11 @@ from pathlib import Path
 import html
 import json
 
-from .longitudinal import make_longitudinal_source_population
+from .analysis import prepare_weighted_analysis, summarise_analysis
+from .longitudinal import build_analysis_cohort_python, make_longitudinal_source_population
 from .longitudinal_qc import longitudinal_qc_manifest
 from .longitudinal_validation import reconcile_longitudinal_builders
-from .pipeline import make_synthetic_cohort, propensity_weights, run_pipeline
+from .pipeline import make_synthetic_cohort, run_pipeline
 from .qc import cohort_attrition, qc_manifest
 from .sensitivity import bootstrap_hr, proportional_hazards_diagnostic
 from .source_population import make_synthetic_source_population
@@ -36,8 +37,9 @@ def build_report(
     raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
     source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
     longitudinal_sources = make_longitudinal_source_population(n_eligible=config.n_patients, seed=config.seed)
-    weighted = propensity_weights(raw)
-    km_summary = survival_at_times(weighted_kaplan_meier(weighted)).to_dict(orient="records")
+    longitudinal_cohort = build_analysis_cohort_python(longitudinal_sources)
+    weighted_longitudinal = prepare_weighted_analysis(longitudinal_cohort)
+    km_summary = survival_at_times(weighted_kaplan_meier(weighted_longitudinal)).to_dict(orient="records")
     attrition = cohort_attrition(source, config).to_dict(orient="records")
     longitudinal_qc = longitudinal_qc_manifest(
         sources=longitudinal_sources,
@@ -49,13 +51,14 @@ def build_report(
         "cohort_attrition": attrition,
         "runtime_qc_manifest": qc_manifest(config),
         "longitudinal_qc_manifest": longitudinal_qc,
-        "primary": run_pipeline(n=config.n_patients, seed=config.seed),
+        "primary_source_derived_analysis": summarise_analysis(longitudinal_cohort),
         "weighted_survival_summary": km_summary,
         "longitudinal_sql_python_reconciliation": reconcile_longitudinal_builders(
             n=config.n_patients,
             seed=config.seed,
             sql_path="sql/longitudinal_analysis_cohort.sql",
         ),
+        "legacy_flat_reference_analysis": run_pipeline(n=config.n_patients, seed=config.seed),
         "flat_sql_pandas": sql_pandas_reconciliation(raw),
         "omop_shape": omop_shape_reconciliation(raw),
         "weight_trimming": weight_trimming_sensitivity(raw),
@@ -84,6 +87,7 @@ pre {{ background: #f5f5f5; padding: 14px; overflow: auto; }}
 <h1>Auditable RWE validation report</h1>
 <p>Study: <strong>{html.escape(config.study_id)}</strong> · version {html.escape(config.study_version)}</p>
 <p>All patient-level data in this report are synthetic. Runtime QC status: <span class="pass">{sections['runtime_qc_manifest']['status']}</span>; longitudinal QC status: <span class="pass">{sections['longitudinal_qc_manifest']['status']}</span>.</p>
+<p>The primary analysis and weighted survival summaries are generated from the cohort derived from longitudinal source tables. The legacy flat cohort is retained only as a regression/reference validation layer.</p>
 {rows}
 </body>
 </html>"""
