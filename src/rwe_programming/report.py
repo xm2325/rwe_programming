@@ -4,10 +4,12 @@ from pathlib import Path
 import html
 import json
 
-from .pipeline import make_synthetic_cohort, run_pipeline
-from .qc import qc_manifest
+from .pipeline import make_synthetic_cohort, propensity_weights, run_pipeline
+from .qc import cohort_attrition, qc_manifest
 from .sensitivity import bootstrap_hr, proportional_hazards_diagnostic
+from .source_population import make_synthetic_source_population
 from .study_config import DEFAULT_CONFIG, StudyConfig
+from .survival import survival_at_times, weighted_kaplan_meier
 from .validation import (
     missingness_sensitivity,
     negative_control_analysis,
@@ -29,10 +31,16 @@ def build_report(
         seed=DEFAULT_CONFIG.seed if seed is None else seed,
     )
     raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
+    source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
+    weighted = propensity_weights(raw)
+    km_summary = survival_at_times(weighted_kaplan_meier(weighted)).to_dict(orient="records")
+    attrition = cohort_attrition(source, config).to_dict(orient="records")
     sections = {
         "study_configuration": config.to_dict(),
+        "cohort_attrition": attrition,
         "runtime_qc_manifest": qc_manifest(config),
         "primary": run_pipeline(n=config.n_patients, seed=config.seed),
+        "weighted_survival_summary": km_summary,
         "sql_pandas": sql_pandas_reconciliation(raw),
         "omop_shape": omop_shape_reconciliation(raw),
         "weight_trimming": weight_trimming_sensitivity(raw),
