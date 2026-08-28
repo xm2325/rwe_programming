@@ -1,45 +1,82 @@
 # RWE Programming Portfolio
 
-Auditable observational-research programming portfolio built around a fully synthetic longitudinal gout cohort. The repository demonstrates cohort construction, propensity-score weighting, survival analysis, balance diagnostics, SQL/Python traceability and reproducible QC without using proprietary patient data.
+Auditable observational-research programming portfolio built around a fully synthetic longitudinal gout cohort. The repository demonstrates cohort construction, propensity-score weighting, survival analysis, SQL/Python traceability, OMOP-shaped reconstruction, sensitivity analysis and reproducible QC without using proprietary patient data.
 
-## Why this repository exists
+## Provenance
 
 This is a **restored/reconstructed** version of an earlier 2026 portfolio project prepared for observational-research programming roles. Archived application materials preserved detailed specifications and validation claims, but the original source archive was not found. See [`docs/RESTORATION_PROVENANCE.md`](docs/RESTORATION_PROVENANCE.md).
 
+The repository therefore separates **currently executable evidence** from **historical archived evidence**. It does not claim that every historical v0.5.x result has been reproduced byte-for-byte.
+
 ## Current executable workflow
 
-The runnable Python pipeline:
+The Python workflow:
 
 1. generates a deterministic synthetic cohort of **9,184 patients**;
 2. defines a controlled-vs-uncontrolled gout exposure indicator;
 3. estimates propensity scores from baseline covariates;
 4. computes stabilised inverse-probability-of-treatment weights;
-5. checks post-weighting covariate balance and effective sample size;
+5. checks covariate balance and effective sample size;
 6. fits a weighted Cox proportional-hazards model for incident CKD;
-7. exposes deterministic tests suitable for CI.
-
-The SQL folder contains a schema-neutral cohort-construction pattern showing how index date, eligibility, exposure and baseline covariates would be translated into analysis data.
+7. performs SQL↔pandas patient-level reconciliation;
+8. reconstructs an OMOP-shaped person/measurement/observation representation and reconciles it back to source data;
+9. evaluates 1st/99th-percentile weight trimming;
+10. evaluates induced baseline-urate missingness using complete-case versus median-imputed analyses;
+11. bootstraps the IPTW Cox hazard ratio;
+12. runs a Schoenfeld-residual proportional-hazards screen;
+13. runs a synthetic negative-control outcome analysis;
+14. evaluates an alternative CKD outcome definition;
+15. builds a self-contained HTML validation report.
 
 ## Run
 
 ```bash
 python -m pip install -r requirements.txt
 PYTHONPATH=src pytest -q
+```
+
+Run the primary workflow:
+
+```bash
 PYTHONPATH=src python - <<'PY'
 from rwe_programming import run_pipeline
 print(run_pipeline())
 PY
 ```
 
-## Current restored validation
+Build the full validation report:
 
-The reconstructed workflow currently passes **4/4 tests**. With the fixed restoration seed it produces 9,184 patients, an effective weighted sample size of about 8,791 and maximum absolute post-weighting SMD of about **0.0034**.
+```bash
+PYTHONPATH=src python - <<'PY'
+from rwe_programming import build_report
+print(build_report("validation/rwe_validation_report.html", n_boot=100))
+PY
+```
+
+## Current validation status
+
+The expanded restoration suite passes **13/13 local tests** before submission. These tests cover the original four pipeline controls plus nine additional validation/sensitivity checks.
+
+Key executable controls include:
+
+- **0 patient-level discrepancies** between SQLite SQL and pandas cohort reconstruction;
+- **0 patient-level discrepancies** after OMOP-shaped decomposition/reconstruction;
+- post-IPTW balance checks using absolute standardised mean differences;
+- effective-sample-size monitoring before and after weight trimming;
+- missing-data, bootstrap, PH-screen, negative-control and alternative-outcome analyses;
+- deterministic HTML report generation.
+
+The fixed restoration seed continues to use **9,184 synthetic patients**. The earlier restoration baseline produced a maximum absolute weighted SMD of about **0.0034**; exact executable outputs should be read from the current code rather than copied from archived application prose.
 
 ## Historical archived evidence
 
-Archived application artefacts document that the earlier portfolio version included broader validation: SQL↔pandas patient-level reconstruction, source-schema↔OMOP-shaped checks, custom Cox-vs-`statsmodels` coefficient reconciliation, missing-data and weight-restriction sensitivity, bootstrap uncertainty, proportional-hazards diagnostics, negative-control analysis and outcome/phenotype sensitivity. They also recorded **52 tests and 60 runtime QC checks** in a prior release.
+Archived application artefacts document that the earlier portfolio version also included SQL↔pandas patient-level reconstruction, source-schema↔OMOP-shaped checks, custom Cox-vs-`statsmodels` coefficient reconciliation, missing-data and weight-restriction sensitivity, bootstrap uncertainty, proportional-hazards diagnostics, negative-control analysis and outcome/phenotype sensitivity. They recorded **52 tests and 60 runtime QC checks** in a prior release.
 
-Those historical results are provenance evidence, not claims that the reconstructed code currently reproduces every old number. The present repository keeps executable results and historical claims clearly separated.
+Those numbers remain provenance evidence only. This restoration deliberately avoids presenting them as current test counts.
+
+## Why this maps to observational-research programming
+
+The project is designed around tasks common in RWE/RWD programming: converting cohort/exposure/outcome specifications into analysis datasets, checking time zero and follow-up logic, implementing propensity-score methods and survival models, validating independent implementations, identifying data or programming discrepancies, documenting sensitivity analyses and keeping claims traceable to executable QC.
 
 ## Data policy
 
