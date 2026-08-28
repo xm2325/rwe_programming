@@ -19,6 +19,7 @@ class LongitudinalStudyWindows:
 
 
 def make_longitudinal_sources(n: int = 9184, seed: int = 20260817) -> dict[str, pd.DataFrame]:
+    """Generate a deterministic longitudinal cohort whose members are analysis-eligible."""
     rng = np.random.default_rng(seed)
     patient_id = np.arange(1, n + 1)
     index_date = pd.Timestamp("2023-01-01") + pd.to_timedelta(rng.integers(0, 180, n), unit="D")
@@ -26,11 +27,7 @@ def make_longitudinal_sources(n: int = 9184, seed: int = 20260817) -> dict[str, 
     female = rng.binomial(1, 0.43, n)
     birth_year = pd.DatetimeIndex(index_date).year - age
 
-    patients = pd.DataFrame({
-        "patient_id": patient_id,
-        "birth_year": birth_year,
-        "female": female,
-    })
+    patients = pd.DataFrame({"patient_id": patient_id, "birth_year": birth_year, "female": female})
     enrollment = pd.DataFrame({
         "patient_id": patient_id,
         "enrollment_start": index_date - pd.to_timedelta(rng.integers(400, 900, n), unit="D"),
@@ -77,6 +74,34 @@ def make_longitudinal_sources(n: int = 9184, seed: int = 20260817) -> dict[str, 
     }
 
 
+def make_longitudinal_source_population(
+    n_eligible: int = 9184,
+    seed: int = 20260817,
+    baseline_ckd_exclusion_fraction: float = 0.05,
+) -> dict[str, pd.DataFrame]:
+    """Generate source tables containing eligible patients plus explicit baseline-CKD exclusions."""
+    eligible = make_longitudinal_sources(n=n_eligible, seed=seed)
+    n_excluded = max(1, int(np.ceil(n_eligible * baseline_ckd_exclusion_fraction)))
+    excluded = make_longitudinal_sources(n=n_excluded, seed=seed + 731)
+    offset = n_eligible
+
+    for frame in excluded.values():
+        frame["patient_id"] = frame["patient_id"].astype(int) + offset
+
+    index_dates = excluded["enrollment"].set_index("patient_id").index_date
+    baseline_ckd = pd.DataFrame({
+        "patient_id": index_dates.index.astype(int),
+        "diagnosis_date": index_dates.to_numpy() - pd.to_timedelta(100, unit="D"),
+        "code": "BASELINE_CKD",
+    })
+    excluded["diagnoses"] = pd.concat([excluded["diagnoses"], baseline_ckd], ignore_index=True)
+
+    return {
+        name: pd.concat([eligible[name], excluded[name]], ignore_index=True)
+        for name in eligible
+    }
+
+
 def build_analysis_cohort_python(sources: dict[str, pd.DataFrame], windows: LongitudinalStudyWindows = LongitudinalStudyWindows()) -> pd.DataFrame:
     patients = sources["patients"].copy()
     enrollment = sources["enrollment"].copy()
@@ -102,6 +127,7 @@ def build_analysis_cohort_python(sources: dict[str, pd.DataFrame], windows: Long
     flare = dx[dx.code.eq("GOUT_FLARE")].groupby("patient_id").size()
     diabetes = dx[dx.code.eq("DIABETES")].groupby("patient_id").size().gt(0)
     hypertension = dx[dx.code.eq("HYPERTENSION")].groupby("patient_id").size().gt(0)
+    baseline_ckd = dx[dx.code.eq("BASELINE_CKD")].groupby("patient_id").size().gt(0)
 
     out = base.copy()
     out["egfr"] = out.patient_id.map(egfr)
@@ -109,7 +135,8 @@ def build_analysis_cohort_python(sources: dict[str, pd.DataFrame], windows: Long
     out["prior_flares"] = out.patient_id.map(flare).fillna(0).astype(int)
     out["diabetes"] = out.patient_id.map(diabetes).fillna(False).astype(int)
     out["hypertension"] = out.patient_id.map(hypertension).fillna(False).astype(int)
-    out = out[(out.age >= windows.min_age) & (out.egfr >= windows.min_baseline_egfr)].copy()
+    out["baseline_ckd"] = out.patient_id.map(baseline_ckd).fillna(False).astype(int)
+    out = out[(out.age >= windows.min_age) & (out.egfr >= windows.min_baseline_egfr) & out.baseline_ckd.eq(0)].copy()
     out["ucg"] = ((out.baseline_urate >= windows.uncontrolled_urate_threshold) | (out.prior_flares >= windows.uncontrolled_flare_threshold)).astype(int)
 
     event = outcomes[outcomes.outcome.eq("INCIDENT_CKD")].merge(out[["patient_id", "index_date", "followup_end"]], on="patient_id")
