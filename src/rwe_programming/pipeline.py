@@ -81,13 +81,14 @@ def weighted_smd(df: pd.DataFrame, col: str, weight_col: str = "stabilized_weigh
     return 0.0 if denom == 0 else float((m1 - m0) / denom)
 
 
-def _breslow_components(
+def _breslow_components_reference(
     beta: float,
     df: pd.DataFrame,
     time_col: str,
     event_col: str,
     weight_col: str,
 ) -> tuple[float, float, float]:
+    """Transparent O(events × rows) implementation retained for numerical QC."""
     time = df[time_col].to_numpy(float)
     event = df[event_col].to_numpy(int)
     x = df["ucg"].to_numpy(float)
@@ -109,7 +110,63 @@ def _breslow_components(
         loglik += beta * death_wx - death_weight * np.log(s0)
         score += death_wx - death_weight * mean_x
         information += death_weight * (s2 / s0 - mean_x**2)
+    return loglik, score, information
 
+
+def _sorted_risk_arrays(
+    beta: float,
+    df: pd.DataFrame,
+    time_col: str,
+    event_col: str,
+    weight_col: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    time = df[time_col].to_numpy(float)
+    event = df[event_col].to_numpy(int)
+    x = df["ucg"].to_numpy(float)
+    w = df[weight_col].to_numpy(float)
+    order = np.argsort(-time, kind="mergesort")
+    ts = time[order]
+    es = event[order]
+    xs = x[order]
+    ws = w[order]
+    expbx = np.exp(beta * xs)
+    group_ends = np.r_[np.flatnonzero(ts[:-1] != ts[1:]), len(ts) - 1]
+    return order, ts, es, xs, ws, expbx, group_ends
+
+
+def _breslow_components(
+    beta: float,
+    df: pd.DataFrame,
+    time_col: str,
+    event_col: str,
+    weight_col: str,
+) -> tuple[float, float, float]:
+    """O(rows log rows) weighted Breslow components using cumulative risk sums."""
+    _, _, es, xs, ws, expbx, group_ends = _sorted_risk_arrays(beta, df, time_col, event_col, weight_col)
+    risk0 = np.cumsum(ws * expbx)
+    risk1 = np.cumsum(ws * xs * expbx)
+    risk2 = np.cumsum(ws * xs**2 * expbx)
+
+    loglik = 0.0
+    score = 0.0
+    information = 0.0
+    start = 0
+    for end in group_ends:
+        group = slice(start, int(end) + 1)
+        death = es[group] == 1
+        if death.any():
+            wg = ws[group][death]
+            xg = xs[group][death]
+            death_weight = float(wg.sum())
+            death_wx = float((wg * xg).sum())
+            s0 = float(risk0[end])
+            s1 = float(risk1[end])
+            s2 = float(risk2[end])
+            mean_x = s1 / s0
+            loglik += beta * death_wx - death_weight * np.log(s0)
+            score += death_wx - death_weight * mean_x
+            information += death_weight * (s2 / s0 - mean_x**2)
+        start = int(end) + 1
     return loglik, score, information
 
 
@@ -120,20 +177,30 @@ def _subject_score_residuals(
     event_col: str,
     weight_col: str,
 ) -> np.ndarray:
-    """Return subject-level score contributions for the weighted Breslow score."""
-    time = df[time_col].to_numpy(float)
-    event = df[event_col].to_numpy(int)
-    x = df["ucg"].to_numpy(float)
-    w = df[weight_col].to_numpy(float)
-    expbx = np.exp(beta * x)
-    u = w * event * x
+    """Subject-level weighted Breslow score contributions in O(rows log rows)."""
+    order, _, es, xs, ws, expbx, group_ends = _sorted_risk_arrays(beta, df, time_col, event_col, weight_col)
+    risk0 = np.cumsum(ws * expbx)
+    hazard_increment = np.zeros(len(group_ends), dtype=float)
 
-    for event_time in np.unique(time[event == 1]):
-        deaths = (time == event_time) & (event == 1)
-        risk = time >= event_time
-        death_weight = float(w[deaths].sum())
-        s0 = float((w[risk] * expbx[risk]).sum())
-        u[risk] -= death_weight * (w[risk] * x[risk] * expbx[risk] / s0)
+    start = 0
+    for g, end in enumerate(group_ends):
+        group = slice(start, int(end) + 1)
+        death = es[group] == 1
+        if death.any():
+            death_weight = float(ws[group][death].sum())
+            hazard_increment[g] = death_weight / float(risk0[end])
+        start = int(end) + 1
+
+    cumulative_from_time_zero = np.cumsum(hazard_increment[::-1])[::-1]
+    group_factor = np.empty(len(es), dtype=float)
+    start = 0
+    for g, end in enumerate(group_ends):
+        group_factor[start:int(end) + 1] = cumulative_from_time_zero[g]
+        start = int(end) + 1
+
+    u_sorted = ws * es * xs - ws * xs * expbx * group_factor
+    u = np.empty_like(u_sorted)
+    u[order] = u_sorted
     return u
 
 
