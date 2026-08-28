@@ -3,7 +3,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.stats import spearmanr
-from statsmodels.duration.hazard_regression import PHReg
 
 from .pipeline import fit_weighted_cox, make_synthetic_cohort, propensity_weights
 
@@ -35,22 +34,26 @@ def bootstrap_hr(
 def proportional_hazards_diagnostic(df: pd.DataFrame | None = None) -> dict:
     base = make_synthetic_cohort() if df is None else df.copy()
     weighted = propensity_weights(base)
-    model = PHReg(
-        weighted.followup_years,
-        weighted[["ucg"]],
-        status=weighted.ckd_event,
-        ties="breslow",
-        freq_weights=weighted.stabilized_weight,
-    )
-    result = model.fit(disp=False)
-    residuals = np.asarray(result.schoenfeld_residuals)[:, 0]
-    mask = (weighted.ckd_event.to_numpy() == 1) & np.isfinite(residuals)
-    rho, p_value = spearmanr(
-        np.log(weighted.loc[mask, "followup_years"].to_numpy()),
-        residuals[mask],
-    )
+    beta = fit_weighted_cox(weighted)["coef"]
+    time = weighted.followup_years.to_numpy(float)
+    event = weighted.ckd_event.to_numpy(int)
+    x = weighted.ucg.to_numpy(float)
+    w = weighted.stabilized_weight.to_numpy(float)
+    expbx = np.exp(beta * x)
+
+    event_times: list[float] = []
+    residuals: list[float] = []
+    for i in np.flatnonzero(event == 1):
+        risk = time >= time[i]
+        denom = float((w[risk] * expbx[risk]).sum())
+        risk_mean = float((w[risk] * x[risk] * expbx[risk]).sum() / denom)
+        event_times.append(float(time[i]))
+        residuals.append(float(x[i] - risk_mean))
+
+    rho, p_value = spearmanr(np.log(np.asarray(event_times)), np.asarray(residuals))
     return {
-        "method": "Spearman correlation of Schoenfeld residuals with log event time (screen)",
+        "method": "Weighted-risk-set Schoenfeld residual screen versus log event time",
+        "n_events": len(event_times),
         "rho": float(rho),
         "p_value": float(p_value),
         "flag_p_lt_0_05": bool(p_value < 0.05),
