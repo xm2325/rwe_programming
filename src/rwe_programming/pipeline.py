@@ -29,7 +29,6 @@ def make_synthetic_cohort(n: int = N_PATIENTS, seed: int = RNG_SEED) -> pd.DataF
     followup = np.minimum(event_time, censor_time)
     ckd_event = (event_time <= censor_time).astype(int)
 
-    # Negative-control outcome: generated without an exposure effect.
     neg_rate = 0.025 * np.exp(0.02 * (age - 58) + 0.1 * diabetes)
     neg_time = rng.exponential(1 / neg_rate)
     negative_event = (neg_time <= censor_time).astype(int)
@@ -114,13 +113,37 @@ def _breslow_components(
     return loglik, score, information
 
 
+def _subject_score_residuals(
+    beta: float,
+    df: pd.DataFrame,
+    time_col: str,
+    event_col: str,
+    weight_col: str,
+) -> np.ndarray:
+    """Return subject-level score contributions for the weighted Breslow score."""
+    time = df[time_col].to_numpy(float)
+    event = df[event_col].to_numpy(int)
+    x = df["ucg"].to_numpy(float)
+    w = df[weight_col].to_numpy(float)
+    expbx = np.exp(beta * x)
+    u = w * event * x
+
+    for event_time in np.unique(time[event == 1]):
+        deaths = (time == event_time) & (event == 1)
+        risk = time >= event_time
+        death_weight = float(w[deaths].sum())
+        s0 = float((w[risk] * expbx[risk]).sum())
+        u[risk] -= death_weight * (w[risk] * x[risk] * expbx[risk] / s0)
+    return u
+
+
 def fit_weighted_cox(
     df: pd.DataFrame,
     time_col: str = "followup_years",
     event_col: str = "ckd_event",
     weight_col: str = "stabilized_weight",
-) -> dict[str, float]:
-    """Fit a one-exposure IPTW Cox model using a weighted Breslow partial likelihood."""
+) -> dict[str, float | str]:
+    """Fit one-exposure IPTW Cox with model-based and sandwich uncertainty."""
     result = minimize_scalar(
         lambda b: -_breslow_components(float(b), df, time_col, event_col, weight_col)[0],
         bounds=(-3.0, 3.0),
@@ -130,17 +153,28 @@ def fit_weighted_cox(
     if not result.success:
         raise RuntimeError(f"Weighted Cox optimisation failed: {result.message}")
     beta = float(result.x)
-    _, _, information = _breslow_components(beta, df, time_col, event_col, weight_col)
+    _, score, information = _breslow_components(beta, df, time_col, event_col, weight_col)
     if not np.isfinite(information) or information <= 0:
         raise RuntimeError("Weighted Cox information matrix is not positive")
-    se = float(np.sqrt(1.0 / information))
+
+    model_se = float(np.sqrt(1.0 / information))
+    subject_scores = _subject_score_residuals(beta, df, time_col, event_col, weight_col)
+    meat = float(np.sum(subject_scores**2))
+    robust_var = meat / (information**2)
+    if len(df) > 1:
+        robust_var *= len(df) / (len(df) - 1)
+    robust_se = float(np.sqrt(max(robust_var, 0.0)))
+
     return {
         "coef": beta,
         "hr": float(np.exp(beta)),
-        "se": se,
-        "ci_low": float(np.exp(beta - 1.96 * se)),
-        "ci_high": float(np.exp(beta + 1.96 * se)),
-        "method": "IPTW-weighted Cox; Breslow partial likelihood",
+        "se": robust_se,
+        "robust_se": robust_se,
+        "model_based_se": model_se,
+        "ci_low": float(np.exp(beta - 1.96 * robust_se)),
+        "ci_high": float(np.exp(beta + 1.96 * robust_se)),
+        "score_at_solution": float(score),
+        "method": "IPTW-weighted Cox; Breslow partial likelihood; subject-level sandwich variance",
     }
 
 
