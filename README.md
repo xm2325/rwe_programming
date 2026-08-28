@@ -1,6 +1,6 @@
 # RWE Programming Portfolio
 
-Auditable observational-research programming portfolio built around a fully synthetic longitudinal gout cohort. The repository demonstrates cohort construction, propensity-score weighting, survival analysis, SQL/Python traceability, OMOP-shaped reconstruction, sensitivity analysis, independent statistical reconciliation, production QC and reproducible reviewer deliverables without using proprietary patient data.
+Auditable observational-research programming portfolio built around a fully synthetic longitudinal gout cohort. The repository demonstrates source-to-analysis cohort construction, propensity-score weighting, survival analysis, SQL/Python traceability, OMOP-shaped reconstruction, sensitivity analysis, independent statistical reconciliation, production QC and reproducible reviewer deliverables without using proprietary patient data.
 
 ## Provenance
 
@@ -8,18 +8,21 @@ This is a **restored/reconstructed** version of an earlier 2026 portfolio projec
 
 The repository therefore separates **currently executable evidence** from **historical archived evidence**. It does not claim that every historical v0.5.x result has been reproduced byte-for-byte.
 
-## Current executable workflow
+## Current executable workflow — v0.8.0-restored
 
 The repository now covers four linked layers.
 
 ### 1. Cohort and statistical analysis
 
-- deterministic synthetic cohort of **9,184 patients**;
+- deterministic final analysis cohort of **9,184 patients**;
+- larger synthetic source population with staged age, baseline-eGFR, follow-up and exposure-classification exclusions;
 - controlled-vs-uncontrolled gout exposure;
 - propensity-score modelling and stabilised IPTW;
 - weighted balance and effective-sample-size checks;
-- weighted Cox proportional-hazards model for incident CKD;
-- an independently implemented Breslow partial-likelihood Cox estimator for coefficient reconciliation.
+- explicit IPTW-weighted Breslow Cox partial likelihood for incident CKD;
+- **subject-level sandwich standard error** for the primary Cox interval, with model-based SE retained for comparison;
+- IPTW Kaplan–Meier point-estimate curves and 1-, 3- and 5-year survival summaries by exposure group;
+- independent unweighted Breslow Cox implementation reconciled against `statsmodels` PHReg on the supported unweighted estimand.
 
 ### 2. RWE validation and sensitivity analysis
 
@@ -28,17 +31,18 @@ The repository now covers four linked layers.
 - 1st/99th-percentile weight trimming;
 - induced missingness with complete-case and median-imputed analyses;
 - bootstrap uncertainty;
-- Schoenfeld-residual proportional-hazards screen;
+- weighted risk-set proportional-hazards screen;
 - synthetic negative-control outcome;
 - alternative CKD outcome definition.
 
 ### 3. Production programming controls
 
 - parameterised `StudyConfig` with study ID/version, population, exposure/comparator, outcome and thresholds;
-- machine-readable cohort attrition ledger;
-- **12-check runtime QC registry** with PASS/FAIL status and SHA-256 content fingerprint;
+- source-to-analysis cohort attrition ledger with non-zero exclusions at every eligibility stage;
+- **14-check runtime QC registry** with PASS/FAIL status and SHA-256 content fingerprint;
 - analysis-dataset specification/data dictionary;
-- analysis specification plus Table 1 balance, Table 2 outcomes and Table 3 primary treatment-effect outputs.
+- analysis specification plus Table 1 balance, Table 2 outcomes and Table 3 primary treatment-effect outputs;
+- Table 3 records robust and model-based uncertainty separately.
 
 ### 4. Reviewer-ready delivery
 
@@ -48,7 +52,8 @@ The repository now covers four linked layers.
 - analysis specification;
 - cohort attrition table;
 - analysis-data dictionary;
-- baseline/balance, outcome and effect tables;
+- baseline/balance, outcome and primary-effect tables;
+- weighted Kaplan–Meier curve and fixed-time survival summary CSVs;
 - independent Cox reconciliation results;
 - runtime QC sign-off manifest;
 - self-contained HTML validation report;
@@ -87,15 +92,17 @@ The GitHub Actions run for the current commit is the authoritative executable st
 
 - **0 patient-level discrepancies** between SQLite SQL and pandas cohort reconstruction;
 - **0 patient-level discrepancies** after OMOP-shaped decomposition/reconstruction;
+- non-zero staged source-to-analysis exclusions with exact reconciliation to 9,184 final patients;
 - post-IPTW balance checks using absolute standardised mean differences;
 - effective-sample-size monitoring before and after weight trimming;
+- sandwich and model-based Cox uncertainty outputs;
+- weighted Kaplan–Meier monotonicity and range checks;
 - independent Cox coefficient reconciliation;
-- deterministic cohort attrition and analysis-table reconciliation;
 - runtime QC manifest generation;
 - missing-data, bootstrap, PH-screen, negative-control and alternative-outcome analyses;
 - reviewer-bundle generation as a CI artifact.
 
-The fixed restoration seed uses **9,184 synthetic patients**. The earlier restoration baseline produced a maximum absolute weighted SMD of about **0.0034**; exact executable outputs should be read from the current code and workflow artifacts rather than copied from archived application prose.
+The fixed restoration seed uses **9,184 synthetic analysis patients**. Exact executable outputs should be read from the current code and workflow artifacts rather than copied from archived application prose.
 
 ## Historical archived evidence
 
@@ -105,7 +112,7 @@ Those historical counts remain provenance evidence only. This restoration delibe
 
 ## Why this maps to observational-research programming
 
-The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into analysis datasets, documenting attrition, checking time zero and follow-up logic, implementing propensity-score methods and survival models, independently validating key estimates, identifying data/programming discrepancies, producing analysis tables, documenting sensitivity analyses and delivering reviewer-ready QC evidence.
+The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into analysis datasets, documenting attrition, checking time zero and follow-up logic, implementing propensity-score methods and survival models, independently validating key estimates, producing reviewer-facing tables and weighted survival outputs, documenting sensitivity analyses and delivering traceable QC evidence.
 
 ## Data policy
 
