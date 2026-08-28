@@ -26,6 +26,7 @@ from .survival import survival_at_times, weighted_kaplan_meier
 from .longitudinal import (
     LongitudinalStudyWindows,
     build_analysis_cohort_python,
+    make_longitudinal_source_population,
     make_longitudinal_sources,
     run_sql_cohort_builder,
 )
@@ -71,6 +72,7 @@ __all__ = [
     "build_reviewer_bundle",
     "LongitudinalStudyWindows",
     "make_longitudinal_sources",
+    "make_longitudinal_source_population",
     "build_analysis_cohort_python",
     "run_sql_cohort_builder",
     "reconcile_longitudinal_builders",
