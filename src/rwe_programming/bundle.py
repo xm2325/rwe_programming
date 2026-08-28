@@ -6,6 +6,7 @@ from pathlib import Path
 from .deliverables import write_deliverables
 from .independent_cox import reconcile_cox
 from .longitudinal import build_analysis_cohort_python, make_longitudinal_sources
+from .longitudinal_qc import write_longitudinal_qc_manifest
 from .longitudinal_validation import reconcile_longitudinal_builders
 from .metadata import data_dictionary_frame
 from .qc import cohort_attrition, write_qc_manifest
@@ -63,6 +64,15 @@ def build_reviewer_bundle(
     source_inventory_path.write_text(json.dumps(source_inventory, indent=2), encoding="utf-8")
     paths["longitudinal_source_inventory"] = str(source_inventory_path)
 
+    paths["longitudinal_qc_manifest"] = str(
+        write_longitudinal_qc_manifest(
+            out / "longitudinal_qc_manifest.json",
+            sources=sources,
+            n=config.n_patients,
+            seed=config.seed,
+        )
+    )
+
     longitudinal_reconciliation_path = out / "longitudinal_builder_reconciliation.json"
     longitudinal_reconciliation_path.write_text(
         json.dumps(
@@ -82,8 +92,8 @@ def build_reviewer_bundle(
     paths["validation_report"] = str(report_path)
 
     inventory_path = out / "bundle_inventory.json"
-    inventory_path.write_text(json.dumps(paths, indent=2, sort_keys=True), encoding="utf-8")
     paths["bundle_inventory"] = str(inventory_path)
+    inventory_path.write_text(json.dumps(paths, indent=2, sort_keys=True), encoding="utf-8")
     return paths
 
 
