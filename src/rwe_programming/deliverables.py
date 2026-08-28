@@ -5,26 +5,30 @@ from pathlib import Path
 
 import pandas as pd
 
-from .pipeline import COVARS, fit_weighted_cox, make_synthetic_cohort, propensity_weights, weighted_smd
+from .analysis import prepare_weighted_analysis
+from .pipeline import COVARS, fit_weighted_cox, make_synthetic_cohort, weighted_smd
 from .survival import survival_at_times, weighted_kaplan_meier
 
 
 ANALYSIS_SPEC = {
     "study_design": "retrospective synthetic longitudinal cohort",
-    "population": "adult synthetic patients with gout; baseline eGFR >= 45 in the final analysis cohort",
-    "index_date": "synthetic cohort entry",
+    "population": "adult synthetic patients with gout; baseline eGFR >= 45; baseline CKD excluded from pre-index diagnosis history",
+    "index_date": "synthetic cohort entry with a 365-day baseline lookback",
     "exposure": {"0": "controlled gout", "1": "uncontrolled gout"},
-    "primary_outcome": "incident CKD event during follow-up",
+    "primary_outcome": "incident CKD event strictly after time zero and within observed follow-up",
     "estimand": "hazard ratio for uncontrolled versus controlled gout in the IPTW pseudo-population",
     "confounding_adjustment": "stabilised inverse-probability-of-treatment weighting",
     "propensity_covariates": COVARS,
     "survival_model": "IPTW-weighted Cox proportional hazards using an explicit weighted Breslow partial likelihood",
-    "uncertainty": "subject-level sandwich standard error for the primary Cox interval; model-based SE retained for comparison; non-parametric bootstrap sensitivity",
+    "uncertainty": "subject-level sandwich standard error conditional on the estimated IPTW for the primary Cox interval; model-based SE retained for comparison; non-parametric bootstrap sensitivity",
     "weighted_survival": "IPTW Kaplan-Meier point estimates by exposure group; no naive Greenwood CI attached",
     "independent_validation": "custom unweighted Breslow implementation reconciled against statsmodels PHReg on the supported unweighted estimand",
+    "source_to_analysis": "Reviewer-bundle TLFs are generated from the cohort derived from longitudinal source tables; the legacy flat synthetic cohort is retained only for regression/reference validation.",
     "qc": [
         "patient-id uniqueness",
         "source-to-analysis attrition reconciliation",
+        "diagnosis-derived baseline CKD exclusion",
+        "time-zero and follow-up checks",
         "propensity bounds",
         "weight positivity",
         "post-weighting SMD",
@@ -79,10 +83,16 @@ def table3_primary_effect(df: pd.DataFrame) -> pd.DataFrame:
     }])
 
 
-def write_deliverables(output_dir: str | Path, n: int = 9184, seed: int = 20260817) -> dict[str, str]:
+def write_deliverables(
+    output_dir: str | Path,
+    n: int = 9184,
+    seed: int = 20260817,
+    analysis_df: pd.DataFrame | None = None,
+) -> dict[str, str]:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    df = propensity_weights(make_synthetic_cohort(n=n, seed=seed))
+    source_df = make_synthetic_cohort(n=n, seed=seed) if analysis_df is None else analysis_df
+    df = prepare_weighted_analysis(source_df)
     curve = weighted_kaplan_meier(df)
     paths = {
         "analysis_spec": out / "analysis_spec.json",
