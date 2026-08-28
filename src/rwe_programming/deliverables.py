@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .pipeline import COVARIATES, make_synthetic_cohort, propensity_weights, weighted_smd, fit_weighted_cox
+from .pipeline import COVARS, fit_weighted_cox, make_synthetic_cohort, propensity_weights, weighted_smd
 
 
 ANALYSIS_SPEC = {
@@ -16,20 +16,33 @@ ANALYSIS_SPEC = {
     "primary_outcome": "incident CKD event during follow-up",
     "estimand": "hazard ratio for uncontrolled versus controlled gout in the IPTW pseudo-population",
     "confounding_adjustment": "stabilised inverse-probability-of-treatment weighting",
-    "propensity_covariates": COVARIATES,
+    "propensity_covariates": COVARS,
     "survival_model": "frequency-weighted Cox proportional hazards; Breslow ties",
-    "qc": ["patient-id uniqueness", "propensity bounds", "weight positivity", "post-weighting SMD", "effective sample size", "independent Cox reconciliation"],
+    "qc": [
+        "patient-id uniqueness",
+        "propensity bounds",
+        "weight positivity",
+        "post-weighting SMD",
+        "effective sample size",
+        "independent Cox reconciliation",
+    ],
 }
 
 
 def table1_balance(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for col in COVARIATES:
+    for col in COVARS:
         for exposure in (0, 1):
             g = df[df.ucg == exposure]
-            rows.append({"covariate": col, "ucg": exposure, "n": len(g), "mean": float(g[col].mean()), "sd": float(g[col].std(ddof=1))})
+            rows.append({
+                "covariate": col,
+                "ucg": exposure,
+                "n": len(g),
+                "mean": float(g[col].mean()),
+                "sd": float(g[col].std(ddof=1)),
+            })
     out = pd.DataFrame(rows)
-    smd = {c: abs(weighted_smd(df, c)) for c in COVARIATES}
+    smd = {c: abs(weighted_smd(df, c)) for c in COVARS}
     out["abs_weighted_smd"] = out["covariate"].map(smd)
     return out
 
@@ -38,13 +51,26 @@ def table2_outcomes(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for exposure in (0, 1):
         g = df[df.ucg == exposure]
-        rows.append({"ucg": exposure, "n": len(g), "events": int(g.ckd_event.sum()), "event_percent": float(100 * g.ckd_event.mean()), "person_years": float(g.followup_years.sum())})
+        rows.append({
+            "ucg": exposure,
+            "n": len(g),
+            "events": int(g.ckd_event.sum()),
+            "event_percent": float(100 * g.ckd_event.mean()),
+            "person_years": float(g.followup_years.sum()),
+        })
     return pd.DataFrame(rows)
 
 
 def table3_primary_effect(df: pd.DataFrame) -> pd.DataFrame:
     cox = fit_weighted_cox(df)
-    return pd.DataFrame([{"contrast": "UCG vs CG", "hazard_ratio": cox["hr"], "ci95_low": cox["ci95_low"], "ci95_high": cox["ci95_high"], "log_hr": cox["coef"], "se": cox["se"]}])
+    return pd.DataFrame([{
+        "contrast": "UCG vs CG",
+        "hazard_ratio": cox["hr"],
+        "ci95_low": cox["ci_low"],
+        "ci95_high": cox["ci_high"],
+        "log_hr": cox["coef"],
+        "se": cox["se"],
+    }])
 
 
 def write_deliverables(output_dir: str | Path, n: int = 9184, seed: int = 20260817) -> dict[str, str]:
