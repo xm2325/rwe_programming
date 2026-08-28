@@ -21,13 +21,19 @@ from .metadata import data_dictionary_frame
 from .independent_cox import fit_independent_weighted_cox, reconcile_cox
 from .deliverables import table1_balance, table2_outcomes, table3_primary_effect, write_deliverables
 from .bundle import build_reviewer_bundle
+from .source_population import make_synthetic_source_population, select_analysis_cohort
+from .survival import survival_at_times, weighted_kaplan_meier
 
 __all__ = [
     "make_synthetic_cohort",
+    "make_synthetic_source_population",
+    "select_analysis_cohort",
     "propensity_weights",
     "weighted_smd",
     "fit_weighted_cox",
     "run_pipeline",
+    "weighted_kaplan_meier",
+    "survival_at_times",
     "sql_pandas_reconciliation",
     "omop_shape_reconciliation",
     "missingness_sensitivity",
