@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize_scalar
 from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
-from statsmodels.duration.hazard_regression import PHReg
 
 RNG_SEED = 20260817
 N_PATIENTS = 9184
@@ -82,28 +82,65 @@ def weighted_smd(df: pd.DataFrame, col: str, weight_col: str = "stabilized_weigh
     return 0.0 if denom == 0 else float((m1 - m0) / denom)
 
 
+def _breslow_components(
+    beta: float,
+    df: pd.DataFrame,
+    time_col: str,
+    event_col: str,
+    weight_col: str,
+) -> tuple[float, float, float]:
+    time = df[time_col].to_numpy(float)
+    event = df[event_col].to_numpy(int)
+    x = df["ucg"].to_numpy(float)
+    w = df[weight_col].to_numpy(float)
+    expbx = np.exp(beta * x)
+    loglik = 0.0
+    score = 0.0
+    information = 0.0
+
+    for event_time in np.unique(time[event == 1]):
+        deaths = (time == event_time) & (event == 1)
+        risk = time >= event_time
+        death_weight = float(w[deaths].sum())
+        death_wx = float((w[deaths] * x[deaths]).sum())
+        s0 = float((w[risk] * expbx[risk]).sum())
+        s1 = float((w[risk] * x[risk] * expbx[risk]).sum())
+        s2 = float((w[risk] * x[risk] ** 2 * expbx[risk]).sum())
+        mean_x = s1 / s0
+        loglik += beta * death_wx - death_weight * np.log(s0)
+        score += death_wx - death_weight * mean_x
+        information += death_weight * (s2 / s0 - mean_x**2)
+
+    return loglik, score, information
+
+
 def fit_weighted_cox(
     df: pd.DataFrame,
     time_col: str = "followup_years",
     event_col: str = "ckd_event",
     weight_col: str = "stabilized_weight",
 ) -> dict[str, float]:
-    model = PHReg(
-        endog=df[time_col],
-        exog=df[["ucg"]],
-        status=df[event_col],
-        ties="breslow",
-        freq_weights=df[weight_col],
+    """Fit a one-exposure IPTW Cox model using a weighted Breslow partial likelihood."""
+    result = minimize_scalar(
+        lambda b: -_breslow_components(float(b), df, time_col, event_col, weight_col)[0],
+        bounds=(-3.0, 3.0),
+        method="bounded",
+        options={"xatol": 1e-10},
     )
-    res = model.fit(disp=False)
-    beta = float(res.params[0])
-    se = float(res.bse[0])
+    if not result.success:
+        raise RuntimeError(f"Weighted Cox optimisation failed: {result.message}")
+    beta = float(result.x)
+    _, _, information = _breslow_components(beta, df, time_col, event_col, weight_col)
+    if not np.isfinite(information) or information <= 0:
+        raise RuntimeError("Weighted Cox information matrix is not positive")
+    se = float(np.sqrt(1.0 / information))
     return {
         "coef": beta,
         "hr": float(np.exp(beta)),
         "se": se,
         "ci_low": float(np.exp(beta - 1.96 * se)),
         "ci_high": float(np.exp(beta + 1.96 * se)),
+        "method": "IPTW-weighted Cox; Breslow partial likelihood",
     }
 
 
