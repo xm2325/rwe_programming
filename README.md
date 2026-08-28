@@ -25,23 +25,26 @@ The repository now covers five linked layers.
 - independent **Python/pandas** and **SQLite SQL** cohort builders execute the same eligibility and outcome logic;
 - patient-level SQL↔Python reconciliation reports source count, baseline-CKD exclusions, final rows and maximum numeric difference.
 
-### 2. Cohort and statistical analysis
+### 2. Source-derived statistical analysis
 
-- deterministic final analysis cohort of **9,184 patients**;
-- larger synthetic source population with staged age, baseline-eGFR, follow-up and exposure-classification exclusions;
+The reviewer-facing primary analysis now consumes the cohort produced from the longitudinal source tables. The earlier flat synthetic cohort is retained only as a regression/reference validation layer; it no longer drives the reviewer Table 1/2/3 or weighted survival outputs.
+
+- deterministic final source-derived analysis cohort of **9,184 patients**;
 - controlled-vs-uncontrolled gout exposure;
 - propensity-score modelling and stabilised IPTW;
 - weighted balance and effective-sample-size checks;
 - explicit IPTW-weighted Breslow Cox partial likelihood for incident CKD;
-- **subject-level sandwich standard error** for the primary Cox interval, with model-based SE retained for comparison;
+- **subject-level sandwich standard error conditional on the estimated IPTW**, with model-based SE retained for comparison;
 - IPTW Kaplan–Meier point-estimate curves and 1-, 3- and 5-year survival summaries by exposure group;
+- optimized cumulative-risk-set Cox implementation with the transparent slower implementation retained as a numerical reference;
 - independent unweighted Breslow Cox implementation reconciled against `statsmodels` PHReg on the supported unweighted estimand.
 
 ### 3. RWE validation and sensitivity analysis
 
-- flat-cohort SQLite SQL ↔ pandas patient-level reconciliation;
-- source-schema ↔ OMOP-shaped reconstruction;
+- flat-cohort SQLite SQL ↔ pandas patient-level reconciliation as a regression/reference check;
+- source-schema ↔ OMOP-shaped reconstruction as a regression/reference check;
 - longitudinal event-table SQL ↔ Python cohort reconciliation after baseline CKD exclusion;
+- optimized-vs-reference weighted Breslow log-likelihood, score and information reconciliation;
 - 1st/99th-percentile weight trimming;
 - induced missingness with complete-case and median-imputed analyses;
 - bootstrap uncertainty;
@@ -57,7 +60,8 @@ The repository now covers five linked layers.
 - separate **16-check longitudinal source/time-zero QC registry** covering enrollment coverage, foreign keys, baseline laboratory availability, medication timing, post-index outcomes, observed follow-up, reproducible exposure derivation and diagnosis-derived baseline CKD exclusion;
 - analysis-dataset specification/data dictionary;
 - analysis specification plus Table 1 balance, Table 2 outcomes and Table 3 primary treatment-effect outputs;
-- Table 3 records robust and model-based uncertainty separately.
+- Table 3 records robust and model-based uncertainty separately;
+- end-to-end tests explicitly protect the `longitudinal source → eligible cohort → IPTW → Cox/KM → TLF` chain.
 
 ### 5. Reviewer-ready delivery
 
@@ -65,13 +69,13 @@ The repository now covers five linked layers.
 
 - study configuration and analysis specification;
 - cohort attrition and analysis-data dictionary;
-- baseline/balance, outcome and primary-effect tables;
-- weighted Kaplan–Meier curve and fixed-time survival summary CSVs;
+- **source-derived** baseline/balance, outcome and primary-effect tables;
+- **source-derived** weighted Kaplan–Meier curve and fixed-time survival summary CSVs;
 - all six longitudinal source-domain CSVs including baseline-CKD-ineligible records, plus the derived eligible longitudinal analysis cohort;
 - longitudinal source inventory and SQL↔Python builder reconciliation JSON;
 - analysis/runtime QC manifest and an independent longitudinal source/time-zero QC sign-off manifest;
-- independent Cox reconciliation results;
-- self-contained HTML validation report;
+- independent Cox regression/reference reconciliation results;
+- self-contained HTML validation report that labels source-derived primary results separately from legacy flat-reference results;
 - machine-readable bundle inventory that includes its own path.
 
 GitHub Actions runs the validation suite on every push/PR, builds the reviewer bundle and uploads it as the `rwe-reviewer-bundle` workflow artifact.
@@ -101,12 +105,18 @@ print(longitudinal_qc_manifest())
 PY
 ```
 
-Run the primary statistical workflow:
+Run the source-derived primary analysis:
 
 ```bash
 PYTHONPATH=src python - <<'PY'
-from rwe_programming import run_pipeline
-print(run_pipeline())
+from rwe_programming import (
+    build_analysis_cohort_python,
+    make_longitudinal_source_population,
+    summarise_analysis,
+)
+sources = make_longitudinal_source_population()
+cohort = build_analysis_cohort_python(sources)
+print(summarise_analysis(cohort))
 PY
 ```
 
@@ -125,6 +135,8 @@ The GitHub Actions run for the current commit is the authoritative executable st
 
 - patient-level reconciliation between independently implemented longitudinal SQL and Python cohort builders;
 - explicit source-level baseline CKD exclusions with zero excluded-patient leakage into the analysis cohort;
+- end-to-end verification that reviewer TLFs use the supplied source-derived analysis cohort;
+- optimized weighted-Cox risk-set calculations reconciled against a transparent reference implementation;
 - **0 patient-level discrepancies** between the flat SQLite SQL and pandas cohort reconstruction;
 - **0 patient-level discrepancies** after OMOP-shaped decomposition/reconstruction;
 - non-zero staged source-to-analysis exclusions with exact reconciliation to 9,184 final patients;
@@ -147,7 +159,7 @@ Those historical counts remain provenance evidence only. This restoration delibe
 
 ## Why this maps to observational-research programming
 
-The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into longitudinal source-table logic and analysis datasets, documenting index/baseline/follow-up windows and attrition, deriving baseline exclusions from source history, checking time zero and source integrity, independently validating SQL and Python cohort construction, implementing propensity-score methods and survival models, producing reviewer-facing tables and weighted survival outputs, documenting sensitivity analyses and delivering traceable QC evidence.
+The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into longitudinal source-table logic and analysis datasets, documenting index/baseline/follow-up windows and attrition, deriving baseline exclusions from source history, checking time zero and source integrity, independently validating SQL and Python cohort construction, carrying the derived cohort through propensity-score methods and survival models, producing reviewer-facing TLFs and weighted survival outputs, documenting sensitivity analyses and delivering traceable QC evidence.
 
 ## Data policy
 
