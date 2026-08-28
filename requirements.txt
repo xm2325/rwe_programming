@@ -1,6 +1,6 @@
-numpy>=1.26
-pandas>=2.1
-scipy>=1.11
-scikit-learn>=1.4
-statsmodels>=0.14
-pytest>=8.0
+numpy>=1.26,<3
+pandas>=2.1,<4
+scipy>=1.11,<2
+scikit-learn>=1.4,<2
+statsmodels>=0.14,<0.16
+pytest>=8,<10
