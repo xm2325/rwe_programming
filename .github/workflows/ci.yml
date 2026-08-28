@@ -18,3 +18,19 @@ jobs:
         env:
           PYTHONPATH: src
         run: pytest -q
+      - name: Build reviewer bundle
+        env:
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+          from rwe_programming.bundle import build_reviewer_bundle
+          from rwe_programming.study_config import DEFAULT_CONFIG
+          paths = build_reviewer_bundle("artifacts/reviewer_bundle", DEFAULT_CONFIG, n_boot=10)
+          print("Generated", len(paths), "reviewer deliverables")
+          PY
+      - name: Upload reviewer bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: rwe-reviewer-bundle
+          path: artifacts/reviewer_bundle
+          if-no-files-found: error
