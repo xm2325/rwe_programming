@@ -4,6 +4,8 @@ from pathlib import Path
 import html
 import json
 
+from .longitudinal import make_longitudinal_sources
+from .longitudinal_qc import longitudinal_qc_manifest
 from .longitudinal_validation import reconcile_longitudinal_builders
 from .pipeline import make_synthetic_cohort, propensity_weights, run_pipeline
 from .qc import cohort_attrition, qc_manifest
@@ -33,13 +35,20 @@ def build_report(
     )
     raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
     source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
+    longitudinal_sources = make_longitudinal_sources(n=config.n_patients, seed=config.seed)
     weighted = propensity_weights(raw)
     km_summary = survival_at_times(weighted_kaplan_meier(weighted)).to_dict(orient="records")
     attrition = cohort_attrition(source, config).to_dict(orient="records")
+    longitudinal_qc = longitudinal_qc_manifest(
+        sources=longitudinal_sources,
+        n=config.n_patients,
+        seed=config.seed,
+    )
     sections = {
         "study_configuration": config.to_dict(),
         "cohort_attrition": attrition,
         "runtime_qc_manifest": qc_manifest(config),
+        "longitudinal_qc_manifest": longitudinal_qc,
         "primary": run_pipeline(n=config.n_patients, seed=config.seed),
         "weighted_survival_summary": km_summary,
         "longitudinal_sql_python_reconciliation": reconcile_longitudinal_builders(
@@ -74,7 +83,7 @@ pre {{ background: #f5f5f5; padding: 14px; overflow: auto; }}
 <body>
 <h1>Auditable RWE validation report</h1>
 <p>Study: <strong>{html.escape(config.study_id)}</strong> · version {html.escape(config.study_version)}</p>
-<p>All patient-level data in this report are synthetic. Runtime QC status: <span class="pass">{sections['runtime_qc_manifest']['status']}</span>.</p>
+<p>All patient-level data in this report are synthetic. Runtime QC status: <span class="pass">{sections['runtime_qc_manifest']['status']}</span>; longitudinal QC status: <span class="pass">{sections['longitudinal_qc_manifest']['status']}</span>.</p>
 {rows}
 </body>
 </html>"""
