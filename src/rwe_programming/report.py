@@ -4,7 +4,7 @@ from pathlib import Path
 import html
 import json
 
-from .pipeline import run_pipeline
+from .pipeline import make_synthetic_cohort, run_pipeline
 from .qc import qc_manifest
 from .sensitivity import bootstrap_hr, proportional_hazards_diagnostic
 from .study_config import DEFAULT_CONFIG, StudyConfig
@@ -28,18 +28,19 @@ def build_report(
         n_patients=DEFAULT_CONFIG.n_patients if n is None else n,
         seed=DEFAULT_CONFIG.seed if seed is None else seed,
     )
+    raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
     sections = {
         "study_configuration": config.to_dict(),
         "runtime_qc_manifest": qc_manifest(config),
         "primary": run_pipeline(n=config.n_patients, seed=config.seed),
-        "sql_pandas": sql_pandas_reconciliation(n=config.n_patients, seed=config.seed),
-        "omop_shape": omop_shape_reconciliation(n=config.n_patients, seed=config.seed),
-        "weight_trimming": weight_trimming_sensitivity(n=config.n_patients, seed=config.seed),
-        "missingness": missingness_sensitivity(n=config.n_patients, seed=config.seed),
-        "bootstrap": bootstrap_hr(n=config.n_patients, seed=config.seed, n_boot=n_boot),
-        "ph_diagnostic": proportional_hazards_diagnostic(n=config.n_patients, seed=config.seed),
-        "negative_control": negative_control_analysis(n=config.n_patients, seed=config.seed),
-        "outcome_sensitivity": outcome_sensitivity(n=config.n_patients, seed=config.seed),
+        "sql_pandas": sql_pandas_reconciliation(raw),
+        "omop_shape": omop_shape_reconciliation(raw),
+        "weight_trimming": weight_trimming_sensitivity(raw),
+        "missingness": missingness_sensitivity(raw, seed=config.seed + 101),
+        "bootstrap": bootstrap_hr(n_boot=n_boot, seed=config.seed + 202, df=raw),
+        "ph_diagnostic": proportional_hazards_diagnostic(raw),
+        "negative_control": negative_control_analysis(raw),
+        "outcome_sensitivity": outcome_sensitivity(raw),
     }
     rows = "".join(
         f"<h2>{html.escape(name)}</h2><pre>{html.escape(json.dumps(result, indent=2))}</pre>"
