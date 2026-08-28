@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 from scipy.stats import spearmanr
 from statsmodels.duration.hazard_regression import PHReg
 
 from .pipeline import fit_weighted_cox, make_synthetic_cohort, propensity_weights
 
 
-def bootstrap_hr(n_boot: int = 100, seed: int = 20260828) -> dict:
-    base = make_synthetic_cohort()
+def bootstrap_hr(
+    n_boot: int = 100,
+    seed: int = 20260828,
+    df: pd.DataFrame | None = None,
+) -> dict:
+    base = make_synthetic_cohort() if df is None else df.copy()
     rng = np.random.default_rng(seed)
     hrs: list[float] = []
     for _ in range(n_boot):
@@ -27,8 +32,9 @@ def bootstrap_hr(n_boot: int = 100, seed: int = 20260828) -> dict:
     }
 
 
-def proportional_hazards_diagnostic() -> dict:
-    weighted = propensity_weights(make_synthetic_cohort())
+def proportional_hazards_diagnostic(df: pd.DataFrame | None = None) -> dict:
+    base = make_synthetic_cohort() if df is None else df.copy()
+    weighted = propensity_weights(base)
     model = PHReg(
         weighted.followup_years,
         weighted[["ucg"]],
