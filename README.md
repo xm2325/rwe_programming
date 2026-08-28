@@ -51,7 +51,8 @@ The repository now covers five linked layers.
 
 - parameterised `StudyConfig` with study ID/version, population, exposure/comparator, outcome and thresholds;
 - source-to-analysis cohort attrition ledger with non-zero exclusions at every eligibility stage;
-- **14-check runtime QC registry** with PASS/FAIL status and SHA-256 content fingerprint;
+- **14-check analysis/runtime QC registry** with PASS/FAIL status and SHA-256 content fingerprint;
+- separate **15-check longitudinal source/time-zero QC registry** covering enrollment coverage, foreign keys, baseline laboratory availability, medication timing, post-index outcomes, observed follow-up and reproducible exposure derivation;
 - analysis-dataset specification/data dictionary;
 - analysis specification plus Table 1 balance, Table 2 outcomes and Table 3 primary treatment-effect outputs;
 - Table 3 records robust and model-based uncertainty separately.
@@ -66,10 +67,10 @@ The repository now covers five linked layers.
 - weighted Kaplan–Meier curve and fixed-time survival summary CSVs;
 - all six longitudinal source-domain CSVs plus the derived longitudinal analysis cohort;
 - longitudinal source inventory and SQL↔Python builder reconciliation JSON;
+- analysis/runtime QC manifest and an independent longitudinal source/time-zero QC sign-off manifest;
 - independent Cox reconciliation results;
-- runtime QC sign-off manifest;
 - self-contained HTML validation report;
-- machine-readable bundle inventory.
+- machine-readable bundle inventory that includes its own path.
 
 GitHub Actions runs the validation suite on every push/PR, builds the reviewer bundle and uploads it as the `rwe-reviewer-bundle` workflow artifact.
 
@@ -86,6 +87,15 @@ Build and reconcile the longitudinal cohort:
 PYTHONPATH=src python - <<'PY'
 from rwe_programming import reconcile_longitudinal_builders
 print(reconcile_longitudinal_builders())
+PY
+```
+
+Run the longitudinal source/time-zero QC registry:
+
+```bash
+PYTHONPATH=src python - <<'PY'
+from rwe_programming import longitudinal_qc_manifest
+print(longitudinal_qc_manifest())
 PY
 ```
 
@@ -120,7 +130,7 @@ The GitHub Actions run for the current commit is the authoritative executable st
 - sandwich and model-based Cox uncertainty outputs;
 - weighted Kaplan–Meier monotonicity and range checks;
 - independent Cox coefficient reconciliation;
-- runtime QC manifest generation;
+- two independent QC manifests: analysis/runtime and longitudinal source/time-zero;
 - missing-data, bootstrap, PH-screen, negative-control and alternative-outcome analyses;
 - reviewer-bundle generation as a CI artifact.
 
@@ -134,7 +144,7 @@ Those historical counts remain provenance evidence only. This restoration delibe
 
 ## Why this maps to observational-research programming
 
-The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into longitudinal source-table logic and analysis datasets, documenting index/baseline/follow-up windows and attrition, checking time zero, independently validating SQL and Python cohort construction, implementing propensity-score methods and survival models, producing reviewer-facing tables and weighted survival outputs, documenting sensitivity analyses and delivering traceable QC evidence.
+The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into longitudinal source-table logic and analysis datasets, documenting index/baseline/follow-up windows and attrition, checking time zero and source integrity, independently validating SQL and Python cohort construction, implementing propensity-score methods and survival models, producing reviewer-facing tables and weighted survival outputs, documenting sensitivity analyses and delivering traceable QC evidence.
 
 ## Data policy
 
