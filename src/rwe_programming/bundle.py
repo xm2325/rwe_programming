@@ -12,7 +12,11 @@ from .report import build_report
 from .study_config import DEFAULT_CONFIG, StudyConfig
 
 
-def build_reviewer_bundle(output_dir: str | Path = "artifacts/reviewer_bundle", config: StudyConfig = DEFAULT_CONFIG, n_boot: int = 50) -> dict[str, str]:
+def build_reviewer_bundle(
+    output_dir: str | Path = "artifacts/reviewer_bundle",
+    config: StudyConfig = DEFAULT_CONFIG,
+    n_boot: int = 50,
+) -> dict[str, str]:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -32,7 +36,10 @@ def build_reviewer_bundle(output_dir: str | Path = "artifacts/reviewer_bundle", 
     paths["qc_manifest"] = str(write_qc_manifest(out / "qc_manifest.json", config))
 
     reconciliation_path = out / "independent_cox_reconciliation.json"
-    reconciliation_path.write_text(json.dumps(reconcile_cox(n=config.n_patients, seed=config.seed), indent=2), encoding="utf-8")
+    reconciliation_path.write_text(
+        json.dumps(reconcile_cox(n=config.n_patients, seed=config.seed), indent=2),
+        encoding="utf-8",
+    )
     paths["independent_cox_reconciliation"] = str(reconciliation_path)
 
     report_path = out / "rwe_validation_report.html"
@@ -45,5 +52,9 @@ def build_reviewer_bundle(output_dir: str | Path = "artifacts/reviewer_bundle", 
     return paths
 
 
-if __name__ == "__main__":
+def main() -> None:
     print(json.dumps(build_reviewer_bundle(), indent=2))
+
+
+if __name__ == "__main__":
+    main()
