@@ -46,7 +46,8 @@ dx AS (
   SELECT b.patient_id,
          SUM(CASE WHEN d.code='GOUT_FLARE' THEN 1 ELSE 0 END) AS prior_flares,
          MAX(CASE WHEN d.code='DIABETES' THEN 1 ELSE 0 END) AS diabetes,
-         MAX(CASE WHEN d.code='HYPERTENSION' THEN 1 ELSE 0 END) AS hypertension
+         MAX(CASE WHEN d.code='HYPERTENSION' THEN 1 ELSE 0 END) AS hypertension,
+         MAX(CASE WHEN d.code='BASELINE_CKD' THEN 1 ELSE 0 END) AS baseline_ckd
   FROM base b
   LEFT JOIN diagnoses d ON d.patient_id=b.patient_id
     AND d.diagnosis_date >= b.baseline_start
@@ -62,7 +63,9 @@ eligible AS (
   JOIN last_egfr e USING (patient_id)
   JOIN last_urate u USING (patient_id)
   JOIN dx USING (patient_id)
-  WHERE b.age >= 18 AND e.egfr >= 45.0
+  WHERE b.age >= 18
+    AND e.egfr >= 45.0
+    AND dx.baseline_ckd = 0
 ),
 first_event AS (
   SELECT o.patient_id, MIN(o.outcome_date) AS event_date
