@@ -4,6 +4,7 @@ from pathlib import Path
 import html
 import json
 
+from .longitudinal_validation import reconcile_longitudinal_builders
 from .pipeline import make_synthetic_cohort, propensity_weights, run_pipeline
 from .qc import cohort_attrition, qc_manifest
 from .sensitivity import bootstrap_hr, proportional_hazards_diagnostic
@@ -41,7 +42,12 @@ def build_report(
         "runtime_qc_manifest": qc_manifest(config),
         "primary": run_pipeline(n=config.n_patients, seed=config.seed),
         "weighted_survival_summary": km_summary,
-        "sql_pandas": sql_pandas_reconciliation(raw),
+        "longitudinal_sql_python_reconciliation": reconcile_longitudinal_builders(
+            n=config.n_patients,
+            seed=config.seed,
+            sql_path="sql/longitudinal_analysis_cohort.sql",
+        ),
+        "flat_sql_pandas": sql_pandas_reconciliation(raw),
         "omop_shape": omop_shape_reconciliation(raw),
         "weight_trimming": weight_trimming_sensitivity(raw),
         "missingness": missingness_sensitivity(raw, seed=config.seed + 101),
