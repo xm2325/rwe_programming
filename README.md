@@ -18,10 +18,12 @@ The repository now covers five linked layers.
 - explicit index date, **365-day baseline window** and up-to-**5-year follow-up** bounded by enrollment end;
 - baseline diabetes, hypertension and gout-flare ascertainment from diagnosis events;
 - last observed baseline eGFR and serum-urate extraction from lab events;
+- explicit **baseline CKD exclusion derived from pre-index diagnosis history**;
 - uncontrolled-gout phenotype from baseline serum urate and flare burden;
 - incident CKD restricted to events strictly after time zero and before the end of follow-up;
-- independent **Python/pandas** and **SQLite SQL** cohort builders;
-- patient-level SQL↔Python reconciliation with a maximum numeric-difference check.
+- longitudinal source population deliberately contains baseline-CKD-ineligible patients while the deterministic analysis cohort remains **9,184**;
+- independent **Python/pandas** and **SQLite SQL** cohort builders execute the same eligibility and outcome logic;
+- patient-level SQL↔Python reconciliation reports source count, baseline-CKD exclusions, final rows and maximum numeric difference.
 
 ### 2. Cohort and statistical analysis
 
@@ -39,7 +41,7 @@ The repository now covers five linked layers.
 
 - flat-cohort SQLite SQL ↔ pandas patient-level reconciliation;
 - source-schema ↔ OMOP-shaped reconstruction;
-- longitudinal event-table SQL ↔ Python cohort reconciliation;
+- longitudinal event-table SQL ↔ Python cohort reconciliation after baseline CKD exclusion;
 - 1st/99th-percentile weight trimming;
 - induced missingness with complete-case and median-imputed analyses;
 - bootstrap uncertainty;
@@ -52,7 +54,7 @@ The repository now covers five linked layers.
 - parameterised `StudyConfig` with study ID/version, population, exposure/comparator, outcome and thresholds;
 - source-to-analysis cohort attrition ledger with non-zero exclusions at every eligibility stage;
 - **14-check analysis/runtime QC registry** with PASS/FAIL status and SHA-256 content fingerprint;
-- separate **15-check longitudinal source/time-zero QC registry** covering enrollment coverage, foreign keys, baseline laboratory availability, medication timing, post-index outcomes, observed follow-up and reproducible exposure derivation;
+- separate **16-check longitudinal source/time-zero QC registry** covering enrollment coverage, foreign keys, baseline laboratory availability, medication timing, post-index outcomes, observed follow-up, reproducible exposure derivation and diagnosis-derived baseline CKD exclusion;
 - analysis-dataset specification/data dictionary;
 - analysis specification plus Table 1 balance, Table 2 outcomes and Table 3 primary treatment-effect outputs;
 - Table 3 records robust and model-based uncertainty separately.
@@ -65,7 +67,7 @@ The repository now covers five linked layers.
 - cohort attrition and analysis-data dictionary;
 - baseline/balance, outcome and primary-effect tables;
 - weighted Kaplan–Meier curve and fixed-time survival summary CSVs;
-- all six longitudinal source-domain CSVs plus the derived longitudinal analysis cohort;
+- all six longitudinal source-domain CSVs including baseline-CKD-ineligible records, plus the derived eligible longitudinal analysis cohort;
 - longitudinal source inventory and SQL↔Python builder reconciliation JSON;
 - analysis/runtime QC manifest and an independent longitudinal source/time-zero QC sign-off manifest;
 - independent Cox reconciliation results;
@@ -122,6 +124,7 @@ PY
 The GitHub Actions run for the current commit is the authoritative executable status. Key controls include:
 
 - patient-level reconciliation between independently implemented longitudinal SQL and Python cohort builders;
+- explicit source-level baseline CKD exclusions with zero excluded-patient leakage into the analysis cohort;
 - **0 patient-level discrepancies** between the flat SQLite SQL and pandas cohort reconstruction;
 - **0 patient-level discrepancies** after OMOP-shaped decomposition/reconstruction;
 - non-zero staged source-to-analysis exclusions with exact reconciliation to 9,184 final patients;
@@ -144,7 +147,7 @@ Those historical counts remain provenance evidence only. This restoration delibe
 
 ## Why this maps to observational-research programming
 
-The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into longitudinal source-table logic and analysis datasets, documenting index/baseline/follow-up windows and attrition, checking time zero and source integrity, independently validating SQL and Python cohort construction, implementing propensity-score methods and survival models, producing reviewer-facing tables and weighted survival outputs, documenting sensitivity analyses and delivering traceable QC evidence.
+The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into longitudinal source-table logic and analysis datasets, documenting index/baseline/follow-up windows and attrition, deriving baseline exclusions from source history, checking time zero and source integrity, independently validating SQL and Python cohort construction, implementing propensity-score methods and survival models, producing reviewer-facing tables and weighted survival outputs, documenting sensitivity analyses and delivering traceable QC evidence.
 
 ## Data policy
 
