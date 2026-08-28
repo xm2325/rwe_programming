@@ -23,6 +23,13 @@ from .deliverables import table1_balance, table2_outcomes, table3_primary_effect
 from .bundle import build_reviewer_bundle
 from .source_population import make_synthetic_source_population, select_analysis_cohort
 from .survival import survival_at_times, weighted_kaplan_meier
+from .longitudinal import (
+    LongitudinalStudyWindows,
+    build_analysis_cohort_python,
+    make_longitudinal_sources,
+    run_sql_cohort_builder,
+)
+from .longitudinal_validation import reconcile_longitudinal_builders
 
 __all__ = [
     "make_synthetic_cohort",
@@ -57,4 +64,9 @@ __all__ = [
     "table3_primary_effect",
     "write_deliverables",
     "build_reviewer_bundle",
+    "LongitudinalStudyWindows",
+    "make_longitudinal_sources",
+    "build_analysis_cohort_python",
+    "run_sql_cohort_builder",
+    "reconcile_longitudinal_builders",
 ]
