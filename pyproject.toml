@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rwe-programming"
+version = "0.7.0"
+description = "Auditable synthetic real-world evidence programming and validation portfolio"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26,<3",
+  "pandas>=2.1,<4",
+  "scipy>=1.11,<2",
+  "scikit-learn>=1.4,<2",
+  "statsmodels>=0.14,<0.16",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[project.scripts]
+rwe-build-reviewer-bundle = "rwe_programming.bundle:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
