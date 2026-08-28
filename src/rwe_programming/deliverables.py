@@ -17,7 +17,9 @@ ANALYSIS_SPEC = {
     "estimand": "hazard ratio for uncontrolled versus controlled gout in the IPTW pseudo-population",
     "confounding_adjustment": "stabilised inverse-probability-of-treatment weighting",
     "propensity_covariates": COVARS,
-    "survival_model": "frequency-weighted Cox proportional hazards; Breslow ties",
+    "survival_model": "IPTW-weighted Cox proportional hazards using an explicit weighted Breslow partial likelihood",
+    "uncertainty": "model-based information-matrix interval for the primary table plus non-parametric bootstrap sensitivity",
+    "independent_validation": "custom unweighted Breslow implementation reconciled against statsmodels PHReg on the supported unweighted estimand",
     "qc": [
         "patient-id uniqueness",
         "propensity bounds",
