@@ -1,6 +1,6 @@
 # RWE Programming Portfolio
 
-Auditable observational-research programming portfolio built around a fully synthetic longitudinal gout cohort. The repository demonstrates cohort construction, propensity-score weighting, survival analysis, SQL/Python traceability, OMOP-shaped reconstruction, sensitivity analysis and reproducible QC without using proprietary patient data.
+Auditable observational-research programming portfolio built around a fully synthetic longitudinal gout cohort. The repository demonstrates cohort construction, propensity-score weighting, survival analysis, SQL/Python traceability, OMOP-shaped reconstruction, sensitivity analysis, independent statistical reconciliation, production QC and reproducible reviewer deliverables without using proprietary patient data.
 
 ## Provenance
 
@@ -10,23 +10,51 @@ The repository therefore separates **currently executable evidence** from **hist
 
 ## Current executable workflow
 
-The Python workflow:
+The repository now covers four linked layers.
 
-1. generates a deterministic synthetic cohort of **9,184 patients**;
-2. defines a controlled-vs-uncontrolled gout exposure indicator;
-3. estimates propensity scores from baseline covariates;
-4. computes stabilised inverse-probability-of-treatment weights;
-5. checks covariate balance and effective sample size;
-6. fits a weighted Cox proportional-hazards model for incident CKD;
-7. performs SQL↔pandas patient-level reconciliation;
-8. reconstructs an OMOP-shaped person/measurement/observation representation and reconciles it back to source data;
-9. evaluates 1st/99th-percentile weight trimming;
-10. evaluates induced baseline-urate missingness using complete-case versus median-imputed analyses;
-11. bootstraps the IPTW Cox hazard ratio;
-12. runs a Schoenfeld-residual proportional-hazards screen;
-13. runs a synthetic negative-control outcome analysis;
-14. evaluates an alternative CKD outcome definition;
-15. builds a self-contained HTML validation report.
+### 1. Cohort and statistical analysis
+
+- deterministic synthetic cohort of **9,184 patients**;
+- controlled-vs-uncontrolled gout exposure;
+- propensity-score modelling and stabilised IPTW;
+- weighted balance and effective-sample-size checks;
+- weighted Cox proportional-hazards model for incident CKD;
+- an independently implemented Breslow partial-likelihood Cox estimator for coefficient reconciliation.
+
+### 2. RWE validation and sensitivity analysis
+
+- SQLite SQL ↔ pandas patient-level reconciliation;
+- source-schema ↔ OMOP-shaped reconstruction;
+- 1st/99th-percentile weight trimming;
+- induced missingness with complete-case and median-imputed analyses;
+- bootstrap uncertainty;
+- Schoenfeld-residual proportional-hazards screen;
+- synthetic negative-control outcome;
+- alternative CKD outcome definition.
+
+### 3. Production programming controls
+
+- parameterised `StudyConfig` with study ID/version, population, exposure/comparator, outcome and thresholds;
+- machine-readable cohort attrition ledger;
+- **12-check runtime QC registry** with PASS/FAIL status and SHA-256 content fingerprint;
+- analysis-dataset specification/data dictionary;
+- analysis specification plus Table 1 balance, Table 2 outcomes and Table 3 primary treatment-effect outputs.
+
+### 4. Reviewer-ready delivery
+
+`build_reviewer_bundle()` assembles a traceable package containing:
+
+- study configuration;
+- analysis specification;
+- cohort attrition table;
+- analysis-data dictionary;
+- baseline/balance, outcome and effect tables;
+- independent Cox reconciliation results;
+- runtime QC sign-off manifest;
+- self-contained HTML validation report;
+- machine-readable bundle inventory.
+
+GitHub Actions runs the validation suite on every push/PR, builds the reviewer bundle and uploads it as the `rwe-reviewer-bundle` workflow artifact.
 
 ## Run
 
@@ -44,39 +72,40 @@ print(run_pipeline())
 PY
 ```
 
-Build the full validation report:
+Build the reviewer bundle:
 
 ```bash
 PYTHONPATH=src python - <<'PY'
-from rwe_programming import build_report
-print(build_report("validation/rwe_validation_report.html", n_boot=100))
+from rwe_programming import build_reviewer_bundle
+print(build_reviewer_bundle("artifacts/reviewer_bundle", n_boot=50))
 PY
 ```
 
-## Current validation status
+## Validation policy
 
-The expanded restoration suite passes **13/13 local tests** before submission. These tests cover the original four pipeline controls plus nine additional validation/sensitivity checks.
-
-Key executable controls include:
+The GitHub Actions run for the current commit is the authoritative executable status. Key controls include:
 
 - **0 patient-level discrepancies** between SQLite SQL and pandas cohort reconstruction;
 - **0 patient-level discrepancies** after OMOP-shaped decomposition/reconstruction;
 - post-IPTW balance checks using absolute standardised mean differences;
 - effective-sample-size monitoring before and after weight trimming;
+- independent Cox coefficient reconciliation;
+- deterministic cohort attrition and analysis-table reconciliation;
+- runtime QC manifest generation;
 - missing-data, bootstrap, PH-screen, negative-control and alternative-outcome analyses;
-- deterministic HTML report generation.
+- reviewer-bundle generation as a CI artifact.
 
-The fixed restoration seed continues to use **9,184 synthetic patients**. The earlier restoration baseline produced a maximum absolute weighted SMD of about **0.0034**; exact executable outputs should be read from the current code rather than copied from archived application prose.
+The fixed restoration seed uses **9,184 synthetic patients**. The earlier restoration baseline produced a maximum absolute weighted SMD of about **0.0034**; exact executable outputs should be read from the current code and workflow artifacts rather than copied from archived application prose.
 
 ## Historical archived evidence
 
-Archived application artefacts document that the earlier portfolio version also included SQL↔pandas patient-level reconstruction, source-schema↔OMOP-shaped checks, custom Cox-vs-`statsmodels` coefficient reconciliation, missing-data and weight-restriction sensitivity, bootstrap uncertainty, proportional-hazards diagnostics, negative-control analysis and outcome/phenotype sensitivity. They recorded **52 tests and 60 runtime QC checks** in a prior release.
+Archived application artefacts document that the earlier portfolio version included SQL↔pandas patient-level reconstruction, source-schema↔OMOP-shaped checks, custom Cox-vs-`statsmodels` coefficient reconciliation, missing-data and weight-restriction sensitivity, bootstrap uncertainty, proportional-hazards diagnostics, negative-control analysis and outcome/phenotype sensitivity. They recorded **52 tests and 60 runtime QC checks** in a prior release.
 
-Those numbers remain provenance evidence only. This restoration deliberately avoids presenting them as current test counts.
+Those historical counts remain provenance evidence only. This restoration deliberately does not present them as current executable counts.
 
 ## Why this maps to observational-research programming
 
-The project is designed around tasks common in RWE/RWD programming: converting cohort/exposure/outcome specifications into analysis datasets, checking time zero and follow-up logic, implementing propensity-score methods and survival models, validating independent implementations, identifying data or programming discrepancies, documenting sensitivity analyses and keeping claims traceable to executable QC.
+The project is organised around tasks common in RWE/RWD programming: translating cohort/exposure/outcome specifications into analysis datasets, documenting attrition, checking time zero and follow-up logic, implementing propensity-score methods and survival models, independently validating key estimates, identifying data/programming discrepancies, producing analysis tables, documenting sensitivity analyses and delivering reviewer-ready QC evidence.
 
 ## Data policy
 
