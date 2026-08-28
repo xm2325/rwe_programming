@@ -24,7 +24,6 @@ def build_reviewer_bundle(
     out.mkdir(parents=True, exist_ok=True)
 
     paths: dict[str, str] = {}
-    paths.update(write_deliverables(out, n=config.n_patients, seed=config.seed))
     paths["study_config"] = str(config.write_json(out / "study_config.json"))
 
     source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
@@ -35,15 +34,7 @@ def build_reviewer_bundle(
     dictionary_path = out / "analysis_data_dictionary.csv"
     data_dictionary_frame().to_csv(dictionary_path, index=False)
     paths["analysis_data_dictionary"] = str(dictionary_path)
-
     paths["qc_manifest"] = str(write_qc_manifest(out / "qc_manifest.json", config))
-
-    reconciliation_path = out / "independent_cox_reconciliation.json"
-    reconciliation_path.write_text(
-        json.dumps(reconcile_cox(n=config.n_patients, seed=config.seed), indent=2),
-        encoding="utf-8",
-    )
-    paths["independent_cox_reconciliation"] = str(reconciliation_path)
 
     longitudinal_dir = out / "longitudinal_sources"
     longitudinal_dir.mkdir(exist_ok=True)
@@ -59,6 +50,16 @@ def build_reviewer_bundle(
     longitudinal_cohort_path = out / "longitudinal_analysis_cohort.csv"
     longitudinal_cohort.to_csv(longitudinal_cohort_path, index=False)
     paths["longitudinal_analysis_cohort"] = str(longitudinal_cohort_path)
+
+    # Primary reviewer tables/figures are generated from the source-derived cohort.
+    paths.update(
+        write_deliverables(
+            out,
+            n=config.n_patients,
+            seed=config.seed,
+            analysis_df=longitudinal_cohort,
+        )
+    )
 
     source_inventory_path = out / "longitudinal_source_inventory.json"
     source_inventory_path.write_text(json.dumps(source_inventory, indent=2), encoding="utf-8")
@@ -86,6 +87,15 @@ def build_reviewer_bundle(
         encoding="utf-8",
     )
     paths["longitudinal_builder_reconciliation"] = str(longitudinal_reconciliation_path)
+
+    # Independent Cox reconciliation remains a deliberately separate flat-cohort
+    # regression/reference check because statsmodels PHReg lacks observation weights.
+    reconciliation_path = out / "independent_cox_reconciliation.json"
+    reconciliation_path.write_text(
+        json.dumps(reconcile_cox(n=config.n_patients, seed=config.seed), indent=2),
+        encoding="utf-8",
+    )
+    paths["independent_cox_reconciliation"] = str(reconciliation_path)
 
     report_path = out / "rwe_validation_report.html"
     build_report(report_path, n=config.n_patients, seed=config.seed, n_boot=n_boot)
