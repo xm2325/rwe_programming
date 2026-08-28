@@ -30,6 +30,11 @@ from .longitudinal import (
     run_sql_cohort_builder,
 )
 from .longitudinal_validation import reconcile_longitudinal_builders
+from .longitudinal_qc import (
+    longitudinal_qc_manifest,
+    run_longitudinal_qc,
+    write_longitudinal_qc_manifest,
+)
 
 __all__ = [
     "make_synthetic_cohort",
@@ -69,4 +74,7 @@ __all__ = [
     "build_analysis_cohort_python",
     "run_sql_cohort_builder",
     "reconcile_longitudinal_builders",
+    "run_longitudinal_qc",
+    "longitudinal_qc_manifest",
+    "write_longitudinal_qc_manifest",
 ]
