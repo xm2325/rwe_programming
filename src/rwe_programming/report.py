@@ -4,7 +4,7 @@ from pathlib import Path
 import html
 import json
 
-from .longitudinal import make_longitudinal_sources
+from .longitudinal import make_longitudinal_source_population
 from .longitudinal_qc import longitudinal_qc_manifest
 from .longitudinal_validation import reconcile_longitudinal_builders
 from .pipeline import make_synthetic_cohort, propensity_weights, run_pipeline
@@ -35,7 +35,7 @@ def build_report(
     )
     raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
     source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
-    longitudinal_sources = make_longitudinal_sources(n=config.n_patients, seed=config.seed)
+    longitudinal_sources = make_longitudinal_source_population(n_eligible=config.n_patients, seed=config.seed)
     weighted = propensity_weights(raw)
     km_summary = survival_at_times(weighted_kaplan_meier(weighted)).to_dict(orient="records")
     attrition = cohort_attrition(source, config).to_dict(orient="records")
