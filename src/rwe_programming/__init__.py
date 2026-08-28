@@ -6,6 +6,14 @@ from .pipeline import (
     weighted_smd,
 )
 from .analysis import prepare_weighted_analysis, summarise_analysis
+from .nhanes_ps import (
+    NHANESPSDefinition,
+    PS_COVARIATES,
+    ULT_DRUG_TERMS,
+    fit_nhanes_propensity_score,
+    nhanes_ps_diagnostics,
+    prepare_nhanes_gout_ps,
+)
 from .validation import (
     sql_pandas_reconciliation,
     omop_shape_reconciliation,
@@ -48,6 +56,12 @@ __all__ = [
     "run_pipeline",
     "prepare_weighted_analysis",
     "summarise_analysis",
+    "NHANESPSDefinition",
+    "PS_COVARIATES",
+    "ULT_DRUG_TERMS",
+    "prepare_nhanes_gout_ps",
+    "fit_nhanes_propensity_score",
+    "nhanes_ps_diagnostics",
     "weighted_kaplan_meier",
     "survival_at_times",
     "sql_pandas_reconciliation",
