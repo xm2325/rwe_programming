@@ -6,9 +6,9 @@ from pathlib import Path
 from .deliverables import write_deliverables
 from .independent_cox import reconcile_cox
 from .metadata import data_dictionary_frame
-from .pipeline import make_synthetic_cohort
 from .qc import cohort_attrition, write_qc_manifest
 from .report import build_report
+from .source_population import make_synthetic_source_population
 from .study_config import DEFAULT_CONFIG, StudyConfig
 
 
@@ -24,9 +24,9 @@ def build_reviewer_bundle(
     paths.update(write_deliverables(out, n=config.n_patients, seed=config.seed))
     paths["study_config"] = str(config.write_json(out / "study_config.json"))
 
-    raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
+    source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
     attrition_path = out / "cohort_attrition.csv"
-    cohort_attrition(raw, config).to_csv(attrition_path, index=False)
+    cohort_attrition(source, config).to_csv(attrition_path, index=False)
     paths["cohort_attrition"] = str(attrition_path)
 
     dictionary_path = out / "analysis_data_dictionary.csv"
