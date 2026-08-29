@@ -10,7 +10,7 @@ from .longitudinal_qc import write_longitudinal_qc_manifest
 from .longitudinal_validation import reconcile_longitudinal_builders
 from .metadata import data_dictionary_frame
 from .qc import cohort_attrition, write_qc_manifest
-from .report import build_report
+from .report import build_report, source_derived_sensitivity_suite
 from .source_population import make_synthetic_source_population
 from .study_config import DEFAULT_CONFIG, StudyConfig
 
@@ -26,15 +26,16 @@ def build_reviewer_bundle(
     paths: dict[str, str] = {}
     paths["study_config"] = str(config.write_json(out / "study_config.json"))
 
+    # Retained only as a clearly labelled legacy/reference attrition/QC layer.
     source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
-    attrition_path = out / "cohort_attrition.csv"
+    attrition_path = out / "cohort_attrition_legacy_reference.csv"
     cohort_attrition(source, config).to_csv(attrition_path, index=False)
-    paths["cohort_attrition"] = str(attrition_path)
+    paths["cohort_attrition_legacy_reference"] = str(attrition_path)
 
     dictionary_path = out / "analysis_data_dictionary.csv"
     data_dictionary_frame().to_csv(dictionary_path, index=False)
     paths["analysis_data_dictionary"] = str(dictionary_path)
-    paths["qc_manifest"] = str(write_qc_manifest(out / "qc_manifest.json", config))
+    paths["qc_manifest_legacy_reference"] = str(write_qc_manifest(out / "qc_manifest_legacy_reference.json", config))
 
     longitudinal_dir = out / "longitudinal_sources"
     longitudinal_dir.mkdir(exist_ok=True)
@@ -60,6 +61,20 @@ def build_reviewer_bundle(
             analysis_df=longitudinal_cohort,
         )
     )
+
+    sensitivity_path = out / "source_derived_sensitivity.json"
+    sensitivity_path.write_text(
+        json.dumps(
+            source_derived_sensitivity_suite(
+                longitudinal_cohort,
+                n_boot=n_boot,
+                seed=config.seed,
+            ),
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    paths["source_derived_sensitivity"] = str(sensitivity_path)
 
     source_inventory_path = out / "longitudinal_source_inventory.json"
     source_inventory_path.write_text(json.dumps(source_inventory, indent=2), encoding="utf-8")
@@ -96,6 +111,11 @@ def build_reviewer_bundle(
         encoding="utf-8",
     )
     paths["independent_cox_reconciliation"] = str(reconciliation_path)
+
+    guide_source = Path("docs/REVIEWER_GUIDE.md")
+    guide_path = out / "REVIEWER_GUIDE.md"
+    guide_path.write_text(guide_source.read_text(encoding="utf-8"), encoding="utf-8")
+    paths["reviewer_guide"] = str(guide_path)
 
     report_path = out / "rwe_validation_report.html"
     build_report(report_path, n=config.n_patients, seed=config.seed, n_boot=n_boot)
