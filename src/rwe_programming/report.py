@@ -24,6 +24,23 @@ from .validation import (
 )
 
 
+def source_derived_sensitivity_suite(
+    longitudinal_cohort,
+    *,
+    n_boot: int,
+    seed: int,
+) -> dict:
+    """Run sensitivity analyses on the same source-derived cohort as the primary analysis."""
+    return {
+        "weight_trimming": weight_trimming_sensitivity(longitudinal_cohort),
+        "missingness": missingness_sensitivity(longitudinal_cohort, seed=seed + 101),
+        "bootstrap": bootstrap_hr(n_boot=n_boot, seed=seed + 202, df=longitudinal_cohort),
+        "ph_diagnostic": proportional_hazards_diagnostic(longitudinal_cohort),
+        "negative_control": negative_control_analysis(longitudinal_cohort),
+        "outcome_sensitivity": outcome_sensitivity(longitudinal_cohort),
+    }
+
+
 def build_report(
     path: str | Path = "validation/rwe_validation_report.html",
     n_boot: int = 30,
@@ -33,6 +50,7 @@ def build_report(
     config = StudyConfig(
         n_patients=DEFAULT_CONFIG.n_patients if n is None else n,
         seed=DEFAULT_CONFIG.seed if seed is None else seed,
+        study_version=DEFAULT_CONFIG.study_version,
     )
     raw = make_synthetic_cohort(n=config.n_patients, seed=config.seed)
     source = make_synthetic_source_population(n_eligible=config.n_patients, seed=config.seed)
@@ -46,27 +64,27 @@ def build_report(
         n=config.n_patients,
         seed=config.seed,
     )
+    sensitivity = source_derived_sensitivity_suite(
+        longitudinal_cohort,
+        n_boot=n_boot,
+        seed=config.seed,
+    )
     sections = {
         "study_configuration": config.to_dict(),
-        "cohort_attrition": attrition,
-        "runtime_qc_manifest": qc_manifest(config),
+        "cohort_attrition_legacy_reference": attrition,
+        "runtime_qc_manifest_legacy_reference": qc_manifest(config),
         "longitudinal_qc_manifest": longitudinal_qc,
         "primary_source_derived_analysis": summarise_analysis(longitudinal_cohort),
         "weighted_survival_summary": km_summary,
+        "source_derived_sensitivity_suite": sensitivity,
         "longitudinal_sql_python_reconciliation": reconcile_longitudinal_builders(
             n=config.n_patients,
             seed=config.seed,
             sql_path="sql/longitudinal_analysis_cohort.sql",
         ),
         "legacy_flat_reference_analysis": run_pipeline(n=config.n_patients, seed=config.seed),
-        "flat_sql_pandas": sql_pandas_reconciliation(raw),
-        "omop_shape": omop_shape_reconciliation(raw),
-        "weight_trimming": weight_trimming_sensitivity(raw),
-        "missingness": missingness_sensitivity(raw, seed=config.seed + 101),
-        "bootstrap": bootstrap_hr(n_boot=n_boot, seed=config.seed + 202, df=raw),
-        "ph_diagnostic": proportional_hazards_diagnostic(raw),
-        "negative_control": negative_control_analysis(raw),
-        "outcome_sensitivity": outcome_sensitivity(raw),
+        "flat_sql_pandas_reference": sql_pandas_reconciliation(raw),
+        "omop_shape_reference": omop_shape_reconciliation(raw),
     }
     rows = "".join(
         f"<h2>{html.escape(name)}</h2><pre>{html.escape(json.dumps(result, indent=2))}</pre>"
@@ -86,8 +104,8 @@ pre {{ background: #f5f5f5; padding: 14px; overflow: auto; }}
 <body>
 <h1>Auditable RWE validation report</h1>
 <p>Study: <strong>{html.escape(config.study_id)}</strong> · version {html.escape(config.study_version)}</p>
-<p>All patient-level data in this report are synthetic. Runtime QC status: <span class="pass">{sections['runtime_qc_manifest']['status']}</span>; longitudinal QC status: <span class="pass">{sections['longitudinal_qc_manifest']['status']}</span>.</p>
-<p>The primary analysis and weighted survival summaries are generated from the cohort derived from longitudinal source tables. The legacy flat cohort is retained only as a regression/reference validation layer.</p>
+<p>All patient-level data in this report are synthetic. Longitudinal QC status: <span class="pass">{sections['longitudinal_qc_manifest']['status']}</span>.</p>
+<p>The primary analysis, weighted survival summaries, weight trimming, missingness, bootstrap, PH screen, negative-control analysis and alternative-outcome sensitivity are all generated from the cohort derived from longitudinal source tables. The earlier flat cohort remains only for explicitly labelled regression/reference checks.</p>
 {rows}
 </body>
 </html>"""
