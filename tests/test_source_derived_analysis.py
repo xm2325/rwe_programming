@@ -6,6 +6,7 @@ import pandas as pd
 from rwe_programming.analysis import prepare_weighted_analysis, summarise_analysis
 from rwe_programming.deliverables import write_deliverables
 from rwe_programming.longitudinal import build_analysis_cohort_python, make_longitudinal_source_population
+from rwe_programming.report import source_derived_sensitivity_suite
 
 
 def test_source_population_builds_exact_requested_analysis_cohort():
@@ -32,6 +33,30 @@ def test_source_derived_cohort_runs_primary_iptw_analysis():
     assert result["effective_sample_size"] > 0
     assert np.isfinite(result["weighted_cox"]["hr"])
     assert result["weighted_cox"]["ci_low"] < result["weighted_cox"]["hr"] < result["weighted_cox"]["ci_high"]
+
+
+def test_source_derived_cohort_contains_source_level_sensitivity_outcomes():
+    sources = make_longitudinal_source_population(n_eligible=500, seed=20260817)
+    cohort = build_analysis_cohort_python(sources)
+    assert cohort.ckd_strict_event.sum() > 0
+    assert cohort.negative_event.sum() > 0
+    assert set(cohort.loc[cohort.ckd_strict_event.eq(1), "patient_id"]).issubset(
+        set(cohort.loc[cohort.ckd_event.eq(1), "patient_id"])
+    )
+
+
+def test_full_sensitivity_suite_uses_source_derived_cohort():
+    sources = make_longitudinal_source_population(n_eligible=450, seed=20260817)
+    cohort = build_analysis_cohort_python(sources)
+    result = source_derived_sensitivity_suite(cohort, n_boot=3, seed=20260817)
+    assert set(result) == {
+        "weight_trimming", "missingness", "bootstrap", "ph_diagnostic",
+        "negative_control", "outcome_sensitivity",
+    }
+    assert result["negative_control"]["outcome_definition"].startswith("source-derived")
+    assert result["outcome_sensitivity"]["alternative_definition"].startswith("source-derived")
+    assert result["outcome_sensitivity"]["alternative_events"] > 0
+    assert np.isfinite(result["bootstrap"]["median_hr"])
 
 
 def test_reviewer_deliverables_use_supplied_source_derived_cohort(tmp_path):
