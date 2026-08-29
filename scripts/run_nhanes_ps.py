@@ -7,7 +7,11 @@ import pandas as pd
 
 from rwe_programming.nhanes_ps import (
     fit_nhanes_propensity_score,
+    nhanes_balance_table,
+    nhanes_overlap_table,
     nhanes_ps_diagnostics,
+    nhanes_ps_qc_manifest,
+    nhanes_weight_diagnostics,
     prepare_nhanes_gout_ps,
 )
 
@@ -35,14 +39,18 @@ def main(
     )
     weighted = fit_nhanes_propensity_score(frame)
     diagnostics = nhanes_ps_diagnostics(weighted)
+    qc = nhanes_ps_qc_manifest(weighted)
 
-    # Keep only analysis-ready public NHANES fields; no synthetic substitution is made.
+    # Participant-level public NHANES rows are useful for local audit, but CI removes
+    # this file before publishing the workflow artifact. Reviewer evidence is aggregate.
     weighted.to_csv(out / "nhanes_gout_ps_analysis.csv", index=False)
-    (out / "nhanes_ps_diagnostics.json").write_text(
-        json.dumps(diagnostics, indent=2),
-        encoding="utf-8",
-    )
-    print(json.dumps(diagnostics, indent=2))
+    nhanes_balance_table(weighted).to_csv(out / "nhanes_balance_table.csv", index=False)
+    nhanes_overlap_table(weighted).to_csv(out / "nhanes_ps_overlap_bins.csv", index=False)
+    nhanes_weight_diagnostics(weighted).to_csv(out / "nhanes_weight_diagnostics.csv", index=False)
+    (out / "nhanes_ps_diagnostics.json").write_text(json.dumps(diagnostics, indent=2), encoding="utf-8")
+    (out / "nhanes_real_data_qc_manifest.json").write_text(json.dumps(qc, indent=2), encoding="utf-8")
+
+    print(json.dumps(qc, indent=2))
 
 
 if __name__ == "__main__":
