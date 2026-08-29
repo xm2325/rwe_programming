@@ -71,6 +71,18 @@ def run_longitudinal_qc(
     analysis_ids = set(analysis.patient_id.astype(int).tolist())
     excluded_ckd_count = len(baseline_ckd_ids)
 
+    primary_ids = set(outcomes.loc[outcomes.outcome.eq("INCIDENT_CKD"), "patient_id"].astype(int).tolist())
+    strict_ids = set(outcomes.loc[outcomes.outcome.eq("INCIDENT_CKD_CONFIRM"), "patient_id"].astype(int).tolist())
+    negative_ids = set(outcomes.loc[outcomes.outcome.eq("NEGATIVE_CONTROL"), "patient_id"].astype(int).tolist())
+    strict_analysis_ids = set(analysis.loc[analysis.ckd_strict_event.eq(1), "patient_id"].astype(int).tolist())
+    primary_analysis_ids = set(analysis.loc[analysis.ckd_event.eq(1), "patient_id"].astype(int).tolist())
+
+    followup_columns = ["followup_years", "ckd_strict_followup_years", "negative_followup_years"]
+    followup_ok = all(
+        (analysis[col] > 0).all() and (analysis[col] <= windows.followup_days / 365.25 + 1e-12).all()
+        for col in followup_columns
+    )
+
     return [
         LongitudinalQCCheck("LQ001", "Patient identifiers are unique", bool(patients.patient_id.is_unique), str(patients.patient_id.nunique()), str(len(patients))),
         LongitudinalQCCheck("LQ002", "Exactly one enrollment row per patient", bool(enrollment.patient_id.is_unique and len(enrollment) == len(patients)), str(len(enrollment)), str(len(patients))),
@@ -85,9 +97,11 @@ def run_longitudinal_qc(
         LongitudinalQCCheck("LQ011", "Medication records occur strictly before time zero within baseline", bool(meds_in_baseline.all()), f"violations={int((~meds_in_baseline).sum())}", "0"),
         LongitudinalQCCheck("LQ012", "Incident outcomes occur strictly after time zero", bool(outcomes_after_time_zero), f"violations={int((out_window.outcome_date <= out_window.index_date).sum()) if len(out_window) else 0}", "0"),
         LongitudinalQCCheck("LQ013", "Incident outcomes do not extend beyond observed enrollment", bool(outcomes_within_enrollment), f"violations={int((out_window.outcome_date > out_window.enrollment_end).sum()) if len(out_window) else 0}", "0"),
-        LongitudinalQCCheck("LQ014", "Analysis follow-up is strictly positive and within horizon", bool((analysis.followup_years > 0).all() and (analysis.followup_years <= windows.followup_days / 365.25 + 1e-12).all()), f"range=[{analysis.followup_years.min():.6f}, {analysis.followup_years.max():.6f}]", f">0 and <={windows.followup_days / 365.25:.6f}"),
+        LongitudinalQCCheck("LQ014", "All analysis follow-up endpoints are positive and within horizon", bool(followup_ok), f"max={max(float(analysis[c].max()) for c in followup_columns):.6f}", f">0 and <={windows.followup_days / 365.25:.6f}"),
         LongitudinalQCCheck("LQ015", "Exposure classification is reproducible from baseline urate/flares", bool(np.array_equal(expected_ucg.to_numpy(), analysis.ucg.to_numpy())), f"mismatches={int((expected_ucg.to_numpy() != analysis.ucg.to_numpy()).sum())}", "0"),
         LongitudinalQCCheck("LQ016", "Baseline CKD patients are present in source history and excluded from analysis", bool(excluded_ckd_count > 0 and baseline_ckd_ids.isdisjoint(analysis_ids) and len(analysis) == n), f"baseline_ckd_source={excluded_ckd_count}; analysis_n={len(analysis)}", f"baseline_ckd_source>0; analysis_n={n}; overlap=0"),
+        LongitudinalQCCheck("LQ017", "Strict CKD confirmation records only occur after a primary CKD source record", bool(len(strict_ids) > 0 and strict_ids.issubset(primary_ids) and strict_analysis_ids.issubset(primary_analysis_ids)), f"primary_source={len(primary_ids)}; strict_source={len(strict_ids)}; strict_analysis={len(strict_analysis_ids)}", "strict>0 and strict subset of primary"),
+        LongitudinalQCCheck("LQ018", "Negative-control outcome is represented and independently derivable from source events", bool(len(negative_ids) > 0 and int(analysis.negative_event.sum()) > 0), f"negative_source={len(negative_ids)}; negative_analysis={int(analysis.negative_event.sum())}", "both >0"),
     ]
 
 
@@ -110,6 +124,7 @@ def longitudinal_qc_manifest(
             "min_baseline_egfr": windows.min_baseline_egfr,
             "uncontrolled_urate_threshold": windows.uncontrolled_urate_threshold,
             "uncontrolled_flare_threshold": windows.uncontrolled_flare_threshold,
+            "strict_ckd_confirmation_min_days": windows.strict_ckd_confirmation_min_days,
         },
         "checks": [asdict(check) for check in checks],
     }
