@@ -7,10 +7,10 @@ def test_longitudinal_qc_manifest_passes():
     sources = make_longitudinal_source_population(n_eligible=300, seed=20260817)
     checks = run_longitudinal_qc(sources=sources, n=300, seed=20260817)
     manifest = longitudinal_qc_manifest(sources=sources, n=300, seed=20260817)
-    assert len(checks) == 16
+    assert len(checks) == 18
     assert all(check.passed for check in checks)
     assert manifest["status"] == "PASS"
-    assert manifest["checks_passed"] == manifest["checks_total"] == 16
+    assert manifest["checks_passed"] == manifest["checks_total"] == 18
     assert len(manifest["content_sha256"]) == 64
 
 
