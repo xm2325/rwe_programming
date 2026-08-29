@@ -1,0 +1,54 @@
+name: NHANES real-data PS validation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/nhanes-real-data.yml'
+      - 'src/rwe_programming/nhanes_ps.py'
+      - 'scripts/download_nhanes_2017_2018.py'
+      - 'scripts/run_nhanes_ps.py'
+      - 'tests/test_nhanes_ps.py'
+
+permissions:
+  contents: read
+
+jobs:
+  real-data-ps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Download public CDC NHANES 2017-2018 XPT files
+        run: python scripts/download_nhanes_2017_2018.py
+      - name: Run real-data gout propensity-score workflow
+        env:
+          PYTHONPATH: src
+        run: python scripts/run_nhanes_ps.py
+      - name: Validate aggregate real-data evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('artifacts/nhanes_ps/nhanes_ps_diagnostics.json')
+          d = json.loads(p.read_text())
+          assert d['causal_effect_claim'] is False
+          assert d['n_complete'] > 0
+          assert d['treated_n'] > 0
+          assert d['untreated_n'] > 0
+          assert 0 < d['propensity_min'] < d['propensity_max'] < 1
+          assert d['effective_sample_size'] > 0
+          print(json.dumps(d, indent=2))
+          PY
+      - name: Remove participant-level analysis rows before upload
+        run: rm -f artifacts/nhanes_ps/nhanes_gout_ps_analysis.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nhanes-real-data-ps-evidence
+          path: artifacts/nhanes_ps
+          if-no-files-found: error
