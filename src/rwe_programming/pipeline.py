@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize_scalar
-from scipy.special import expit
 from sklearn.linear_model import LogisticRegression
+from statsmodels.duration.hazard_regression import PHReg
 
 RNG_SEED = 20260817
 N_PATIENTS = 9184
@@ -13,29 +13,30 @@ COVARS = ["age", "female", "diabetes", "hypertension", "egfr", "baseline_urate",
 
 def make_synthetic_cohort(n: int = N_PATIENTS, seed: int = RNG_SEED) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    age = np.clip(rng.normal(58, 12, n), 18, 90)
+    patient_id = np.arange(1, n + 1)
+    age = np.clip(np.rint(rng.normal(58, 12, n)), 18, 90).astype(int)
     female = rng.binomial(1, 0.43, n)
-    diabetes = rng.binomial(1, expit(-2.0 + 0.025 * (age - 50)), n)
-    hypertension = rng.binomial(1, expit(-1.3 + 0.035 * (age - 50)), n)
+    diabetes = rng.binomial(1, 1 / (1 + np.exp(-(-2.0 + 0.025 * (age - 50)))), n)
+    hypertension = rng.binomial(1, 1 / (1 + np.exp(-(-1.3 + 0.035 * (age - 50)))), n)
     egfr = np.clip(rng.normal(92 - 0.35 * (age - 50) - 7 * diabetes, 14, n), 45, 140)
     baseline_urate = np.clip(rng.normal(7.4 + 0.35 * diabetes + 0.2 * hypertension, 1.1, n), 3.5, 13.0)
     prior_flares = rng.poisson(np.clip(0.7 + 0.18 * (baseline_urate - 6) + 0.25 * diabetes, 0.1, 4), n)
-    logit_ucg = -0.6 + 0.28 * (baseline_urate - 7) + 0.18 * prior_flares + 0.25 * diabetes + 0.15 * hypertension
-    ucg = rng.binomial(1, expit(logit_ucg), n)
-    linpred = 0.025 * (age - 58) + 0.45 * diabetes + 0.35 * hypertension - 0.018 * (egfr - 90) + 0.08 * ucg
-    rate = 0.035 * np.exp(linpred)
-    event_time = rng.exponential(1 / rate)
-    censor_time = rng.uniform(1.0, 5.0, n)
-    followup = np.minimum(event_time, censor_time)
-    ckd_event = (event_time <= censor_time).astype(int)
+    ucg = ((baseline_urate >= 8.0) | (prior_flares >= 2)).astype(int)
 
-    neg_rate = 0.025 * np.exp(0.02 * (age - 58) + 0.1 * diabetes)
-    neg_time = rng.exponential(1 / neg_rate)
-    negative_event = (neg_time <= censor_time).astype(int)
-    negative_followup = np.minimum(neg_time, censor_time)
+    linpred = 0.025 * (age - 58) + 0.45 * diabetes + 0.35 * hypertension - 0.018 * (egfr - 90) + 0.08 * ucg
+    event_time = rng.exponential(1 / (0.035 * np.exp(linpred)))
+    censor = rng.uniform(2.0, 5.0, n)
+    ckd_event = (event_time <= censor).astype(int)
+    followup_years = np.minimum(event_time, censor)
+
+    # Kept for legacy/reference validation only. The reviewer-facing negative-control
+    # endpoint is generated from the longitudinal outcomes source domain.
+    neg_event_time = rng.exponential(1 / 0.025, n)
+    negative_event = (neg_event_time <= censor).astype(int)
+    negative_followup_years = np.minimum(neg_event_time, censor)
 
     return pd.DataFrame({
-        "patient_id": np.arange(1, n + 1),
+        "patient_id": patient_id,
         "age": age,
         "female": female,
         "diabetes": diabetes,
@@ -44,39 +45,37 @@ def make_synthetic_cohort(n: int = N_PATIENTS, seed: int = RNG_SEED) -> pd.DataF
         "baseline_urate": baseline_urate,
         "prior_flares": prior_flares,
         "ucg": ucg,
-        "followup_years": followup,
+        "followup_years": followup_years,
         "ckd_event": ckd_event,
-        "negative_followup_years": negative_followup,
+        "negative_followup_years": negative_followup_years,
         "negative_event": negative_event,
     })
 
 
-def propensity_weights(df: pd.DataFrame, covars: list[str] | None = None) -> pd.DataFrame:
-    covars = COVARS if covars is None else covars
-    model = LogisticRegression(max_iter=2000)
-    model.fit(df[covars], df["ucg"])
-    ps = np.clip(model.predict_proba(df[covars])[:, 1], 0.01, 0.99)
-    p_t = float(df["ucg"].mean())
-    sw = np.where(df["ucg"].eq(1), p_t / ps, (1 - p_t) / (1 - ps))
+def propensity_weights(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
+    x = out[COVARS]
+    model = LogisticRegression(max_iter=3000)
+    model.fit(x, out["ucg"])
+    ps = np.clip(model.predict_proba(x)[:, 1], 0.01, 0.99)
+    p = float(out["ucg"].mean())
     out["propensity_score"] = ps
-    out["stabilized_weight"] = sw
+    out["stabilized_weight"] = np.where(out.ucg.eq(1), p / ps, (1 - p) / (1 - ps))
     return out
 
 
-def weighted_smd(df: pd.DataFrame, col: str, weight_col: str = "stabilized_weight") -> float:
-    t = df["ucg"].to_numpy()
-    x = df[col].to_numpy(float)
+def _weighted_mean_var(x: np.ndarray, w: np.ndarray) -> tuple[float, float]:
+    mean = float(np.average(x, weights=w))
+    var = float(np.average((x - mean) ** 2, weights=w))
+    return mean, var
+
+
+def weighted_smd(df: pd.DataFrame, column: str, weight_col: str = "stabilized_weight") -> float:
+    t = df.ucg.eq(1).to_numpy()
+    x = df[column].to_numpy(float)
     w = df[weight_col].to_numpy(float)
-
-    def wmean(mask):
-        return np.average(x[mask], weights=w[mask])
-
-    def wvar(mask, mean):
-        return np.average((x[mask] - mean) ** 2, weights=w[mask])
-
-    m1, m0 = wmean(t == 1), wmean(t == 0)
-    v1, v0 = wvar(t == 1, m1), wvar(t == 0, m0)
+    m1, v1 = _weighted_mean_var(x[t], w[t])
+    m0, v0 = _weighted_mean_var(x[~t], w[~t])
     denom = np.sqrt((v1 + v0) / 2)
     return 0.0 if denom == 0 else float((m1 - m0) / denom)
 
@@ -88,28 +87,26 @@ def _breslow_components_reference(
     event_col: str,
     weight_col: str,
 ) -> tuple[float, float, float]:
-    """Transparent O(events × rows) implementation retained for numerical QC."""
+    """Transparent O(events × rows) weighted Breslow reference implementation."""
     time = df[time_col].to_numpy(float)
     event = df[event_col].to_numpy(int)
     x = df["ucg"].to_numpy(float)
     w = df[weight_col].to_numpy(float)
     expbx = np.exp(beta * x)
-    loglik = 0.0
-    score = 0.0
-    information = 0.0
-
-    for event_time in np.unique(time[event == 1]):
-        deaths = (time == event_time) & (event == 1)
-        risk = time >= event_time
-        death_weight = float(w[deaths].sum())
-        death_wx = float((w[deaths] * x[deaths]).sum())
-        s0 = float((w[risk] * expbx[risk]).sum())
-        s1 = float((w[risk] * x[risk] * expbx[risk]).sum())
-        s2 = float((w[risk] * x[risk] ** 2 * expbx[risk]).sum())
-        mean_x = s1 / s0
-        loglik += beta * death_wx - death_weight * np.log(s0)
-        score += death_wx - death_weight * mean_x
-        information += death_weight * (s2 / s0 - mean_x**2)
+    loglik = score = information = 0.0
+    for t in np.unique(time[event == 1]):
+        deaths = (time == t) & (event == 1)
+        risk = time >= t
+        d_weight = float(w[deaths].sum())
+        d_wx = float((w[deaths] * x[deaths]).sum())
+        rw = w[risk] * expbx[risk]
+        s0 = float(rw.sum())
+        s1 = float((rw * x[risk]).sum())
+        s2 = float((rw * x[risk] ** 2).sum())
+        xbar = s1 / s0
+        loglik += beta * d_wx - d_weight * np.log(s0)
+        score += d_wx - d_weight * xbar
+        information += d_weight * (s2 / s0 - xbar**2)
     return loglik, score, information
 
 
@@ -177,28 +174,45 @@ def _subject_score_residuals(
     event_col: str,
     weight_col: str,
 ) -> np.ndarray:
-    """Subject-level weighted Breslow score contributions in O(rows log rows)."""
-    order, _, es, xs, ws, expbx, group_ends = _sorted_risk_arrays(beta, df, time_col, event_col, weight_col)
+    """Case-weighted Breslow score residuals matching R survival's definition.
+
+    For subject i the unweighted score residual is
+      event_i * (x_i - xbar(T_i))
+      - exp(beta*x_i) * sum_{t <= T_i} dLambda(t) * (x_i - xbar(t)).
+    R's ``residuals.coxph(..., type='dfbeta', weighted=TRUE)`` then multiplies
+    this residual by the case weight before applying inverse information.  The
+    implementation below follows that ordering explicitly.
+    """
+    order, _, es, xs, ws, expbx, group_ends = _sorted_risk_arrays(
+        beta, df, time_col, event_col, weight_col
+    )
     risk0 = np.cumsum(ws * expbx)
+    risk1 = np.cumsum(ws * xs * expbx)
     hazard_increment = np.zeros(len(group_ends), dtype=float)
+    xbar = np.zeros(len(group_ends), dtype=float)
 
     start = 0
+    group_index = np.empty(len(es), dtype=int)
     for g, end in enumerate(group_ends):
-        group = slice(start, int(end) + 1)
+        end = int(end)
+        group = slice(start, end + 1)
+        group_index[start:end + 1] = g
         death = es[group] == 1
         if death.any():
             death_weight = float(ws[group][death].sum())
             hazard_increment[g] = death_weight / float(risk0[end])
-        start = int(end) + 1
+            xbar[g] = float(risk1[end]) / float(risk0[end])
+        start = end + 1
 
-    cumulative_from_time_zero = np.cumsum(hazard_increment[::-1])[::-1]
-    group_factor = np.empty(len(es), dtype=float)
-    start = 0
-    for g, end in enumerate(group_ends):
-        group_factor[start:int(end) + 1] = cumulative_from_time_zero[g]
-        start = int(end) + 1
+    # With descending follow-up times, event times <= a subject's observed time
+    # are the current and later groups, hence reverse cumulative sums.
+    cum_hazard = np.cumsum(hazard_increment[::-1])[::-1]
+    cum_xbar_hazard = np.cumsum((hazard_increment * xbar)[::-1])[::-1]
+    g = group_index
+    event_contribution = es * (xs - xbar[g])
+    compensator = expbx * (xs * cum_hazard[g] - cum_xbar_hazard[g])
+    u_sorted = ws * (event_contribution - compensator)
 
-    u_sorted = ws * es * xs - ws * xs * expbx * group_factor
     u = np.empty_like(u_sorted)
     u[order] = u_sorted
     return u
@@ -228,8 +242,6 @@ def fit_weighted_cox(
     subject_scores = _subject_score_residuals(beta, df, time_col, event_col, weight_col)
     meat = float(np.sum(subject_scores**2))
     robust_var = meat / (information**2)
-    if len(df) > 1:
-        robust_var *= len(df) / (len(df) - 1)
     robust_se = float(np.sqrt(max(robust_var, 0.0)))
 
     return {
@@ -241,7 +253,7 @@ def fit_weighted_cox(
         "ci_low": float(np.exp(beta - 1.96 * robust_se)),
         "ci_high": float(np.exp(beta + 1.96 * robust_se)),
         "score_at_solution": float(score),
-        "method": "IPTW-weighted Cox; Breslow partial likelihood; subject-level sandwich variance",
+        "method": "IPTW-weighted Cox; Breslow partial likelihood; case-weighted score-residual sandwich variance",
     }
 
 
