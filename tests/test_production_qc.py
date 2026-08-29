@@ -6,7 +6,7 @@ from rwe_programming.study_config import DEFAULT_CONFIG, StudyConfig
 
 def test_default_study_config_is_reproducible():
     assert DEFAULT_CONFIG.study_id == "RWE-GOUT-CKD-001"
-    assert DEFAULT_CONFIG.study_version == "0.9.0-restored"
+    assert DEFAULT_CONFIG.study_version == "0.10.0-restored"
     assert DEFAULT_CONFIG.n_patients == 9184
     assert DEFAULT_CONFIG.seed == 20260817
 
