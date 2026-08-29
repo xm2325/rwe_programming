@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 
 import numpy as np
 import pandas as pd
@@ -31,7 +33,7 @@ class NHANESPSDefinition:
     population: str = "Adults with doctor-diagnosed gout"
     exposure: str = "Current urate-lowering therapy use reported in the prescription-medication questionnaire"
     estimand: str = "Propensity-score overlap and covariate-balance demonstration; no causal treatment-effect claim"
-    gout_variable: str = "MCQ160n"
+    gout_variable: str = "MCQ160N"
     age_variable: str = "RIDAGEYR"
     sex_variable: str = "RIAGENDR"
     race_variable: str = "RIDRETH3"
@@ -41,11 +43,18 @@ class NHANESPSDefinition:
     survey_weight_variable: str = "WTMEC2YR"
 
 
+def _normalise_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    out.columns = [str(c).upper() for c in out.columns]
+    return out
+
+
 def _binary_yes(series: pd.Series) -> pd.Series:
     return series.eq(1).astype(int)
 
 
 def _ult_patient_ids(rx: pd.DataFrame) -> set[int]:
+    rx = _normalise_columns(rx)
     if "RXDDRUG" not in rx or "SEQN" not in rx:
         raise ValueError("RXQ_RX input must contain SEQN and RXDDRUG")
     names = rx["RXDDRUG"].fillna("").astype(str).str.lower()
@@ -64,15 +73,23 @@ def prepare_nhanes_gout_ps(
     diabetes: pd.DataFrame | None = None,
     blood_pressure: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
-    """Build a real-data PS analysis frame from public NHANES component tables.
+    """Build the public NHANES gout treatment-PS analysis frame.
 
-    The function intentionally keeps serum urate as a descriptive variable only. Because
-    NHANES medication use and laboratory measurements are cross-sectional, current serum
-    urate may be downstream of urate-lowering treatment and is therefore not included in
-    the default treatment propensity-score covariate set.
+    All incoming XPT column names are normalised case-insensitively because SAS/Pandas
+    readers may expose questionnaire variable names with different case. Serum urate is
+    intentionally descriptive only: current urate can be downstream of current ULT use
+    in this cross-sectional cycle and is therefore excluded from the default PS model.
     """
+    demo = _normalise_columns(demo)
+    mcq = _normalise_columns(mcq)
+    rx = _normalise_columns(rx)
+    biopro = _normalise_columns(biopro)
+    bmx = _normalise_columns(bmx)
+    diabetes = None if diabetes is None else _normalise_columns(diabetes)
+    blood_pressure = None if blood_pressure is None else _normalise_columns(blood_pressure)
+
     required_demo = {"SEQN", "RIDAGEYR", "RIAGENDR", "RIDRETH3"}
-    required_mcq = {"SEQN", "MCQ160n"}
+    required_mcq = {"SEQN", "MCQ160N"}
     required_biopro = {"SEQN", "LBXSCR", "LBXSUA"}
     required_bmx = {"SEQN", "BMXBMI"}
     for label, frame, required in (
@@ -88,8 +105,8 @@ def prepare_nhanes_gout_ps(
     cols_demo = ["SEQN", "RIDAGEYR", "RIAGENDR", "RIDRETH3"]
     if "WTMEC2YR" in demo.columns:
         cols_demo.append("WTMEC2YR")
-    out = demo[cols_demo].merge(mcq[["SEQN", "MCQ160n"]], on="SEQN", how="inner")
-    out = out[out["MCQ160n"].eq(1)].copy()
+    out = demo[cols_demo].merge(mcq[["SEQN", "MCQ160N"]], on="SEQN", how="inner")
+    out = out[out["MCQ160N"].eq(1)].copy()
     out = out.merge(biopro[["SEQN", "LBXSCR", "LBXSUA"]], on="SEQN", how="left")
     out = out.merge(bmx[["SEQN", "BMXBMI"]], on="SEQN", how="left")
 
@@ -122,6 +139,11 @@ def prepare_nhanes_gout_ps(
     return out[keep].sort_values("SEQN").reset_index(drop=True)
 
 
+def _model_matrix(frame: pd.DataFrame, covariates: list[str]) -> pd.DataFrame:
+    categorical = [c for c in covariates if c == "race_ethnicity"]
+    return pd.get_dummies(frame[covariates], columns=categorical, drop_first=False, dtype=float)
+
+
 def fit_nhanes_propensity_score(
     frame: pd.DataFrame,
     covariates: list[str] | None = None,
@@ -136,7 +158,7 @@ def fit_nhanes_propensity_score(
     if complete["ult_use"].nunique() != 2:
         raise ValueError("Both treated and untreated gout patients are required to estimate a propensity score")
 
-    x = pd.get_dummies(complete[covariates], columns=["race_ethnicity"], drop_first=False, dtype=float)
+    x = _model_matrix(complete, covariates)
     model = LogisticRegression(max_iter=3000)
     model.fit(x, complete["ult_use"])
     ps = np.clip(model.predict_proba(x)[:, 1], 0.01, 0.99)
@@ -149,16 +171,13 @@ def fit_nhanes_propensity_score(
     complete["propensity_score"] = ps
     complete["stabilized_weight"] = sw
     if "survey_weight" in complete.columns:
-        combined = complete["survey_weight"].to_numpy(float) * sw
+        survey = complete["survey_weight"].to_numpy(float)
+        combined = survey * sw
         complete["survey_iptw_weight"] = combined / np.nanmean(combined)
-    return complete
+    return complete.reset_index(drop=True)
 
 
-def _smd(frame: pd.DataFrame, column: str, weight: str | None = None) -> float:
-    x = frame[column].to_numpy(float)
-    z = frame["ult_use"].to_numpy(int)
-    w = np.ones(len(frame), dtype=float) if weight is None else frame[weight].to_numpy(float)
-
+def _smd_arrays(x: np.ndarray, z: np.ndarray, w: np.ndarray) -> float:
     def mean_var(mask: np.ndarray) -> tuple[float, float]:
         ww = w[mask]
         xx = x[mask]
@@ -172,24 +191,119 @@ def _smd(frame: pd.DataFrame, column: str, weight: str | None = None) -> float:
     return 0.0 if denom == 0 else float((m1 - m0) / denom)
 
 
-def nhanes_ps_diagnostics(frame: pd.DataFrame, covariates: list[str] | None = None) -> dict:
+def nhanes_balance_table(frame: pd.DataFrame, covariates: list[str] | None = None) -> pd.DataFrame:
     covariates = PS_COVARIATES if covariates is None else covariates
-    numeric_balance = [c for c in covariates if c != "race_ethnicity"]
-    before = {c: abs(_smd(frame, c)) for c in numeric_balance}
-    after = {c: abs(_smd(frame, c, "stabilized_weight")) for c in numeric_balance}
+    x = _model_matrix(frame, covariates)
+    z = frame["ult_use"].to_numpy(int)
+    rows = []
+    for column in x.columns:
+        values = x[column].to_numpy(float)
+        before = _smd_arrays(values, z, np.ones(len(frame), dtype=float))
+        after = _smd_arrays(values, z, frame["stabilized_weight"].to_numpy(float))
+        row = {
+            "variable": column,
+            "smd_unweighted": before,
+            "abs_smd_unweighted": abs(before),
+            "smd_iptw": after,
+            "abs_smd_iptw": abs(after),
+        }
+        if "survey_iptw_weight" in frame.columns:
+            survey_after = _smd_arrays(values, z, frame["survey_iptw_weight"].to_numpy(float))
+            row["smd_survey_iptw"] = survey_after
+            row["abs_smd_survey_iptw"] = abs(survey_after)
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("abs_smd_iptw", ascending=False).reset_index(drop=True)
+
+
+def nhanes_overlap_table(frame: pd.DataFrame, n_bins: int = 10) -> pd.DataFrame:
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    bins = pd.cut(frame["propensity_score"], edges, include_lowest=True, right=True)
+    temp = pd.DataFrame({"ps_bin": bins, "ult_use": frame["ult_use"].astype(int)})
+    table = (
+        temp.groupby(["ps_bin", "ult_use"], observed=False)
+        .size()
+        .unstack(fill_value=0)
+        .rename(columns={0: "untreated_n", 1: "treated_n"})
+        .reset_index()
+    )
+    for col in ["untreated_n", "treated_n"]:
+        if col not in table:
+            table[col] = 0
+    table["ps_bin"] = table["ps_bin"].astype(str)
+    return table[["ps_bin", "untreated_n", "treated_n"]]
+
+
+def _ess(weights: pd.Series | np.ndarray) -> float:
+    w = np.asarray(weights, dtype=float)
+    return float(w.sum() ** 2 / np.square(w).sum())
+
+
+def nhanes_weight_diagnostics(frame: pd.DataFrame) -> pd.DataFrame:
+    rows = []
+    for name in ["stabilized_weight", "survey_iptw_weight"]:
+        if name not in frame.columns:
+            continue
+        w = frame[name].astype(float)
+        rows.append({
+            "weight": name,
+            "min": float(w.min()),
+            "p50": float(w.quantile(0.50)),
+            "p95": float(w.quantile(0.95)),
+            "p99": float(w.quantile(0.99)),
+            "max": float(w.max()),
+            "effective_sample_size": _ess(w),
+        })
+    return pd.DataFrame(rows)
+
+
+def nhanes_ps_diagnostics(frame: pd.DataFrame, covariates: list[str] | None = None) -> dict:
+    balance = nhanes_balance_table(frame, covariates)
     ps = frame["propensity_score"]
     w = frame["stabilized_weight"]
-    ess = float(w.sum() ** 2 / np.square(w).sum())
+    treated = frame.loc[frame.ult_use.eq(1), "propensity_score"]
+    untreated = frame.loc[frame.ult_use.eq(0), "propensity_score"]
+    overlap_low = max(float(treated.min()), float(untreated.min()))
+    overlap_high = min(float(treated.max()), float(untreated.max()))
     return {
+        "definition": NHANESPSDefinition().__dict__,
         "n_complete": int(len(frame)),
         "treated_n": int(frame["ult_use"].sum()),
         "untreated_n": int((1 - frame["ult_use"]).sum()),
+        "treated_fraction": float(frame["ult_use"].mean()),
         "propensity_min": float(ps.min()),
         "propensity_max": float(ps.max()),
+        "common_support_low": overlap_low,
+        "common_support_high": overlap_high,
         "weight_p99": float(w.quantile(0.99)),
-        "effective_sample_size": ess,
-        "max_abs_smd_before": float(max(before.values())) if before else 0.0,
-        "max_abs_smd_after": float(max(after.values())) if after else 0.0,
+        "effective_sample_size": _ess(w),
+        "max_abs_smd_before": float(balance["abs_smd_unweighted"].max()),
+        "max_abs_smd_after": float(balance["abs_smd_iptw"].max()),
         "causal_effect_claim": False,
         "interpretation": "Real NHANES treatment-model diagnostics only; cross-sectional timing does not support a longitudinal treatment-effect claim.",
     }
+
+
+def nhanes_ps_qc_manifest(frame: pd.DataFrame) -> dict:
+    diagnostics = nhanes_ps_diagnostics(frame)
+    checks = [
+        ("RQ001", "Complete-case analysis contains both treatment groups", diagnostics["treated_n"] > 0 and diagnostics["untreated_n"] > 0),
+        ("RQ002", "Propensity scores are finite and strictly inside (0,1)", bool(np.isfinite(frame.propensity_score).all() and frame.propensity_score.between(0, 1, inclusive="neither").all())),
+        ("RQ003", "Stabilised IPTW are finite and positive", bool(np.isfinite(frame.stabilized_weight).all() and (frame.stabilized_weight > 0).all())),
+        ("RQ004", "Treated and untreated propensity-score ranges have common support", diagnostics["common_support_high"] > diagnostics["common_support_low"]),
+        ("RQ005", "Effective sample size is positive and no larger than complete-case N", 0 < diagnostics["effective_sample_size"] <= diagnostics["n_complete"] + 1e-9),
+        ("RQ006", "Serum urate is not used in the default treatment propensity model", "serum_urate" not in PS_COVARIATES),
+        ("RQ007", "Workflow makes no causal treatment-effect claim", diagnostics["causal_effect_claim"] is False),
+    ]
+    manifest = {
+        "status": "PASS" if all(passed for _, _, passed in checks) else "FAIL",
+        "checks_total": len(checks),
+        "checks_passed": int(sum(passed for _, _, passed in checks)),
+        "checks": [
+            {"check_id": check_id, "description": description, "passed": bool(passed)}
+            for check_id, description, passed in checks
+        ],
+        "diagnostics": diagnostics,
+    }
+    canonical = json.dumps(manifest, sort_keys=True).encode()
+    manifest["content_sha256"] = hashlib.sha256(canonical).hexdigest()
+    return manifest
