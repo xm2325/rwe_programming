@@ -31,9 +31,16 @@ def _component_frames(n=80):
     bmx = pd.DataFrame({"SEQN": seqn, "BMXBMI": 22 + 0.15 * np.arange(n)})
     diq = pd.DataFrame({"SEQN": seqn, "DIQ010": np.where(np.arange(n) % 5 == 0, 1, 2)})
     bpq = pd.DataFrame({"SEQN": seqn, "BPQ020": np.where(np.arange(n) % 3 == 0, 1, 2)})
+
+    # Keep exactly half treated, but deliberately avoid a treatment rule that is
+    # perfectly determined by sex or another PS covariate. A separable fixture would
+    # test synthetic construction artefacts rather than the real-data PS workflow.
+    rng = np.random.default_rng(20260817)
+    treated = np.zeros(n, dtype=bool)
+    treated[rng.permutation(n)[: n // 2]] = True
     rx = pd.DataFrame({
         "SEQN": seqn,
-        "RXDDRUG": np.where(np.arange(n) % 2 == 0, "ALLOPURINOL", "LISINOPRIL"),
+        "RXDDRUG": np.where(treated, "ALLOPURINOL", "LISINOPRIL"),
     })
     return demo, mcq, rx, biopro, bmx, diq, bpq
 
