@@ -51,7 +51,7 @@ jobs:
           r-version: 'release'
       - name: Fit independent R survival weighted Cox
         run: Rscript scripts/reconcile_weighted_cox.R artifacts/cox_r_validation/weighted_analysis.csv artifacts/cox_r_validation/r_cox_reference.csv
-      - name: Compare point estimate and record robust-SE difference
+      - name: Reconcile point estimate and robust SE
         run: |
           python - <<'PY'
           import csv, json
@@ -69,12 +69,16 @@ jobs:
               'r_robust_se': float(r['robust_se']),
               'robust_se_abs_difference': abs(float(py['robust_se']) - float(r['robust_se'])),
               'point_estimate_tolerance': 1e-6,
-              'robust_se_is_diagnostic_only': True,
+              'robust_se_tolerance': 1e-6,
+              'robust_se_is_diagnostic_only': False,
           }
           result['point_estimate_pass'] = result['coefficient_abs_difference'] <= result['point_estimate_tolerance']
+          result['robust_se_pass'] = result['robust_se_abs_difference'] <= result['robust_se_tolerance']
+          result['status'] = 'PASS' if result['point_estimate_pass'] and result['robust_se_pass'] else 'FAIL'
           (out / 'weighted_cox_reconciliation.json').write_text(json.dumps(result, indent=2))
           print(json.dumps(result, indent=2))
           assert result['point_estimate_pass']
+          assert result['robust_se_pass']
           PY
       - name: Remove analysis rows before artifact upload
         run: rm -f artifacts/cox_r_validation/weighted_analysis.csv
