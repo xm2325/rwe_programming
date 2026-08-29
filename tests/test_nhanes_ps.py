@@ -59,17 +59,22 @@ def test_nhanes_ps_fit_and_aggregate_evidence_are_finite_without_effect_claim():
     qc = nhanes_ps_qc_manifest(weighted)
 
     assert weighted.propensity_score.between(0.01, 0.99).all()
+    assert weighted.survey_propensity_score.between(0.01, 0.99).all()
     assert (weighted.stabilized_weight > 0).all()
+    assert (weighted.survey_stabilized_weight > 0).all()
     assert np.isfinite(weighted.survey_iptw_weight).all()
     assert diagnostic["n_complete"] == 80
     assert diagnostic["treated_n"] == 40
     assert diagnostic["untreated_n"] == 40
     assert diagnostic["causal_effect_claim"] is False
     assert diagnostic["effective_sample_size"] > 0
+    assert diagnostic["survey_iptw_effective_sample_size"] > 0
     assert "race_ethnicity_1" in set(balance.variable)
     assert np.isfinite(balance.filter(like="smd").to_numpy(float)).all()
     assert overlap[["treated_n", "untreated_n"]].to_numpy().sum() == 80
-    assert set(weights.weight) == {"stabilized_weight", "survey_iptw_weight"}
+    assert set(weights.weight) == {
+        "stabilized_weight", "survey_stabilized_weight", "survey_iptw_weight"
+    }
     assert qc["status"] == "PASS"
-    assert qc["checks_passed"] == qc["checks_total"] == 7
+    assert qc["checks_passed"] == qc["checks_total"] == 8
     assert len(qc["content_sha256"]) == 64
