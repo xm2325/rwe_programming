@@ -16,10 +16,17 @@ class LongitudinalStudyWindows:
     min_baseline_egfr: float = 45.0
     uncontrolled_urate_threshold: float = 8.0
     uncontrolled_flare_threshold: int = 2
+    strict_ckd_confirmation_min_days: int = 30
 
 
 def make_longitudinal_sources(n: int = 9184, seed: int = 20260817) -> dict[str, pd.DataFrame]:
-    """Generate a deterministic longitudinal cohort whose members are analysis-eligible."""
+    """Generate deterministic longitudinal source domains for analysis-eligible patients.
+
+    Three post-index outcome processes are represented in the source table:
+    INCIDENT_CKD is the primary endpoint, INCIDENT_CKD_CONFIRM is a later confirming
+    record used for a stricter two-record phenotype, and NEGATIVE_CONTROL is generated
+    independently of exposure for a source-derived negative-control analysis.
+    """
     rng = np.random.default_rng(seed)
     patient_id = np.arange(1, n + 1)
     index_date = pd.Timestamp("2023-01-01") + pd.to_timedelta(rng.integers(0, 180, n), unit="D")
@@ -62,7 +69,16 @@ def make_longitudinal_sources(n: int = 9184, seed: int = 20260817) -> dict[str, 
         event_time_days = int(max(1, rng.exponential(365.25 / (0.035 * np.exp(linpred)))))
         followup_limit = min(1825, int((enrollment.iloc[i].enrollment_end - idx).days))
         if event_time_days <= followup_limit:
-            outcome_rows.append({"patient_id": pid, "outcome_date": idx + pd.Timedelta(days=event_time_days), "outcome": "INCIDENT_CKD"})
+            primary_date = idx + pd.Timedelta(days=event_time_days)
+            outcome_rows.append({"patient_id": pid, "outcome_date": primary_date, "outcome": "INCIDENT_CKD"})
+            confirm_gap = int(rng.integers(30, 181))
+            if rng.random() < 0.78 and event_time_days + confirm_gap <= followup_limit:
+                outcome_rows.append({"patient_id": pid, "outcome_date": primary_date + pd.Timedelta(days=confirm_gap), "outcome": "INCIDENT_CKD_CONFIRM"})
+
+        # Negative-control outcome: same follow-up mechanics, no exposure term.
+        negative_time_days = int(max(1, rng.exponential(365.25 / 0.025)))
+        if negative_time_days <= followup_limit:
+            outcome_rows.append({"patient_id": pid, "outcome_date": idx + pd.Timedelta(days=negative_time_days), "outcome": "NEGATIVE_CONTROL"})
 
     return {
         "patients": patients,
@@ -102,6 +118,30 @@ def make_longitudinal_source_population(
     }
 
 
+def _first_outcome_date(
+    outcomes: pd.DataFrame,
+    eligible: pd.DataFrame,
+    outcome_name: str,
+) -> pd.Series:
+    event = outcomes[outcomes.outcome.eq(outcome_name)].merge(
+        eligible[["patient_id", "index_date", "followup_end"]], on="patient_id"
+    )
+    event = event[(event.outcome_date > event.index_date) & (event.outcome_date <= event.followup_end)]
+    return event.groupby("patient_id").outcome_date.min()
+
+
+def _add_time_to_event(
+    out: pd.DataFrame,
+    first_event: pd.Series,
+    event_col: str,
+    followup_col: str,
+) -> None:
+    event_date = out.patient_id.map(first_event)
+    out[event_col] = event_date.notna().astype(int)
+    analysis_end = event_date.fillna(out.followup_end)
+    out[followup_col] = (analysis_end - out.index_date).dt.days / 365.25
+
+
 def build_analysis_cohort_python(sources: dict[str, pd.DataFrame], windows: LongitudinalStudyWindows = LongitudinalStudyWindows()) -> pd.DataFrame:
     patients = sources["patients"].copy()
     enrollment = sources["enrollment"].copy()
@@ -139,14 +179,19 @@ def build_analysis_cohort_python(sources: dict[str, pd.DataFrame], windows: Long
     out = out[(out.age >= windows.min_age) & (out.egfr >= windows.min_baseline_egfr) & out.baseline_ckd.eq(0)].copy()
     out["ucg"] = ((out.baseline_urate >= windows.uncontrolled_urate_threshold) | (out.prior_flares >= windows.uncontrolled_flare_threshold)).astype(int)
 
-    event = outcomes[outcomes.outcome.eq("INCIDENT_CKD")].merge(out[["patient_id", "index_date", "followup_end"]], on="patient_id")
-    event = event[(event.outcome_date > event.index_date) & (event.outcome_date <= event.followup_end)]
-    first_event = event.groupby("patient_id").outcome_date.min()
-    out["event_date"] = out.patient_id.map(first_event)
-    out["ckd_event"] = out.event_date.notna().astype(int)
-    out["analysis_end"] = out.event_date.fillna(out.followup_end)
-    out["followup_years"] = (out.analysis_end - out.index_date).dt.days / 365.25
-    cols = ["patient_id", "age", "female", "diabetes", "hypertension", "egfr", "baseline_urate", "prior_flares", "ucg", "followup_years", "ckd_event"]
+    primary = _first_outcome_date(outcomes, out, "INCIDENT_CKD")
+    strict = _first_outcome_date(outcomes, out, "INCIDENT_CKD_CONFIRM")
+    negative = _first_outcome_date(outcomes, out, "NEGATIVE_CONTROL")
+    _add_time_to_event(out, primary, "ckd_event", "followup_years")
+    _add_time_to_event(out, strict, "ckd_strict_event", "ckd_strict_followup_years")
+    _add_time_to_event(out, negative, "negative_event", "negative_followup_years")
+
+    cols = [
+        "patient_id", "age", "female", "diabetes", "hypertension", "egfr",
+        "baseline_urate", "prior_flares", "ucg", "followup_years", "ckd_event",
+        "ckd_strict_followup_years", "ckd_strict_event",
+        "negative_followup_years", "negative_event",
+    ]
     return out[cols].sort_values("patient_id").reset_index(drop=True)
 
 
