@@ -11,7 +11,11 @@ from .nhanes_ps import (
     PS_COVARIATES,
     ULT_DRUG_TERMS,
     fit_nhanes_propensity_score,
+    nhanes_balance_table,
+    nhanes_overlap_table,
     nhanes_ps_diagnostics,
+    nhanes_ps_qc_manifest,
+    nhanes_weight_diagnostics,
     prepare_nhanes_gout_ps,
 )
 from .validation import (
@@ -23,7 +27,7 @@ from .validation import (
     outcome_sensitivity,
 )
 from .sensitivity import bootstrap_hr, proportional_hazards_diagnostic
-from .report import build_report
+from .report import build_report, source_derived_sensitivity_suite
 from .study_config import DEFAULT_CONFIG, StudyConfig
 from .qc import cohort_attrition, qc_manifest, run_qc_registry, write_qc_manifest
 from .metadata import data_dictionary_frame
@@ -61,7 +65,11 @@ __all__ = [
     "ULT_DRUG_TERMS",
     "prepare_nhanes_gout_ps",
     "fit_nhanes_propensity_score",
+    "nhanes_balance_table",
+    "nhanes_overlap_table",
     "nhanes_ps_diagnostics",
+    "nhanes_ps_qc_manifest",
+    "nhanes_weight_diagnostics",
     "weighted_kaplan_meier",
     "survival_at_times",
     "sql_pandas_reconciliation",
@@ -73,6 +81,7 @@ __all__ = [
     "bootstrap_hr",
     "proportional_hazards_diagnostic",
     "build_report",
+    "source_derived_sensitivity_suite",
     "StudyConfig",
     "DEFAULT_CONFIG",
     "cohort_attrition",
