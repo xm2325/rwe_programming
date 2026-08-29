@@ -8,7 +8,7 @@ import json
 @dataclass(frozen=True)
 class StudyConfig:
     study_id: str = "RWE-GOUT-CKD-001"
-    study_version: str = "0.9.0-restored"
+    study_version: str = "0.10.0-restored"
     population: str = "synthetic adults with gout"
     exposure: str = "uncontrolled gout"
     comparator: str = "controlled gout"
