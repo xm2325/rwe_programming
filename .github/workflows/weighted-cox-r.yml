@@ -1,0 +1,85 @@
+name: Independent R weighted Cox reconciliation
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/weighted-cox-r.yml'
+      - 'scripts/reconcile_weighted_cox.R'
+      - 'src/rwe_programming/pipeline.py'
+      - 'src/rwe_programming/analysis.py'
+      - 'src/rwe_programming/longitudinal.py'
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Generate deterministic source-derived weighted analysis and Python reference
+        env:
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from rwe_programming.analysis import prepare_weighted_analysis
+          from rwe_programming.longitudinal import build_analysis_cohort_python, make_longitudinal_source_population
+          from rwe_programming.pipeline import fit_weighted_cox
+
+          out = Path('artifacts/cox_r_validation')
+          out.mkdir(parents=True, exist_ok=True)
+          sources = make_longitudinal_source_population(n_eligible=2000, seed=20260817)
+          cohort = build_analysis_cohort_python(sources)
+          weighted = prepare_weighted_analysis(cohort)
+          cols = ['patient_id', 'followup_years', 'ckd_event', 'ucg', 'stabilized_weight']
+          weighted[cols].to_csv(out / 'weighted_analysis.csv', index=False)
+          result = fit_weighted_cox(weighted)
+          (out / 'python_cox_reference.json').write_text(json.dumps(result, indent=2))
+          print(json.dumps(result, indent=2))
+          PY
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: 'release'
+      - name: Fit independent R survival weighted Cox
+        run: Rscript scripts/reconcile_weighted_cox.R artifacts/cox_r_validation/weighted_analysis.csv artifacts/cox_r_validation/r_cox_reference.csv
+      - name: Compare point estimate and record robust-SE difference
+        run: |
+          python - <<'PY'
+          import csv, json
+          from pathlib import Path
+
+          out = Path('artifacts/cox_r_validation')
+          py = json.loads((out / 'python_cox_reference.json').read_text())
+          with (out / 'r_cox_reference.csv').open(newline='') as f:
+              r = next(csv.DictReader(f))
+          result = {
+              'python_coefficient': float(py['coef']),
+              'r_coefficient': float(r['coefficient']),
+              'coefficient_abs_difference': abs(float(py['coef']) - float(r['coefficient'])),
+              'python_robust_se': float(py['robust_se']),
+              'r_robust_se': float(r['robust_se']),
+              'robust_se_abs_difference': abs(float(py['robust_se']) - float(r['robust_se'])),
+              'point_estimate_tolerance': 1e-6,
+              'robust_se_is_diagnostic_only': True,
+          }
+          result['point_estimate_pass'] = result['coefficient_abs_difference'] <= result['point_estimate_tolerance']
+          (out / 'weighted_cox_reconciliation.json').write_text(json.dumps(result, indent=2))
+          print(json.dumps(result, indent=2))
+          assert result['point_estimate_pass']
+          PY
+      - name: Remove analysis rows before artifact upload
+        run: rm -f artifacts/cox_r_validation/weighted_analysis.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: weighted-cox-r-reconciliation
+          path: artifacts/cox_r_validation
+          if-no-files-found: error
