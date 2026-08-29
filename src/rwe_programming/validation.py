@@ -96,7 +96,8 @@ def missingness_sensitivity(df: pd.DataFrame | None = None, seed: int = 11) -> d
     analysis = df.copy()
     analysis.loc[missing, "baseline_urate"] = np.nan
 
-    complete_case = propensity_weights(analysis.dropna().copy())
+    required = [*COVARS, "ucg", "followup_years", "ckd_event"]
+    complete_case = propensity_weights(analysis.dropna(subset=required).copy())
     imputed = analysis.copy()
     imputed["baseline_urate"] = imputed["baseline_urate"].fillna(imputed["baseline_urate"].median())
     imputed = propensity_weights(imputed)
@@ -104,7 +105,9 @@ def missingness_sensitivity(df: pd.DataFrame | None = None, seed: int = 11) -> d
     complete_hr = fit_weighted_cox(complete_case)["hr"]
     imputed_hr = fit_weighted_cox(imputed)["hr"]
     return {
+        "source": "supplied_analysis_cohort" if df is not None else "legacy_flat_default",
         "missing_fraction": float(missing.mean()),
+        "complete_case_n": int(len(complete_case)),
         "complete_case_hr": complete_hr,
         "median_imputed_hr": imputed_hr,
         "hr_abs_difference": abs(complete_hr - imputed_hr),
@@ -128,34 +131,55 @@ def weight_trimming_sensitivity(df: pd.DataFrame | None = None) -> dict:
 
 
 def negative_control_analysis(df: pd.DataFrame | None = None) -> dict:
-    weighted = propensity_weights(make_synthetic_cohort() if df is None else df.copy())
-    return fit_weighted_cox(
+    base = make_synthetic_cohort() if df is None else df.copy()
+    required = {"negative_followup_years", "negative_event"}
+    if not required.issubset(base.columns):
+        raise ValueError("negative-control analysis requires source-derived negative outcome columns")
+    weighted = propensity_weights(base)
+    result = fit_weighted_cox(
         weighted,
         time_col="negative_followup_years",
         event_col="negative_event",
     )
+    result["outcome_definition"] = "source-derived NEGATIVE_CONTROL event"
+    return result
 
 
 def outcome_sensitivity(df: pd.DataFrame | None = None) -> dict:
-    weighted = propensity_weights(make_synthetic_cohort() if df is None else df.copy())
+    base = make_synthetic_cohort() if df is None else df.copy()
+    weighted = propensity_weights(base)
     primary = fit_weighted_cox(weighted)
 
-    alternative = weighted.copy()
-    alternative["ckd_event_alt"] = (
-        (alternative.ckd_event == 1) | (alternative.egfr < 60)
-    ).astype(int)
-    alternative["followup_alt"] = np.where(
-        (alternative.egfr < 60) & (alternative.ckd_event == 0),
-        0.5,
-        alternative.followup_years,
-    )
-    alt_cox = fit_weighted_cox(
-        alternative,
-        time_col="followup_alt",
-        event_col="ckd_event_alt",
-    )
+    if {"ckd_strict_followup_years", "ckd_strict_event"}.issubset(weighted.columns):
+        alt_cox = fit_weighted_cox(
+            weighted,
+            time_col="ckd_strict_followup_years",
+            event_col="ckd_strict_event",
+        )
+        definition = "source-derived confirmed CKD phenotype"
+        alt_events = int(weighted.ckd_strict_event.sum())
+    else:
+        alternative = weighted.copy()
+        alternative["ckd_event_alt"] = (
+            (alternative.ckd_event == 1) | (alternative.egfr < 60)
+        ).astype(int)
+        alternative["followup_alt"] = np.where(
+            (alternative.egfr < 60) & (alternative.ckd_event == 0),
+            0.5,
+            alternative.followup_years,
+        )
+        alt_cox = fit_weighted_cox(
+            alternative,
+            time_col="followup_alt",
+            event_col="ckd_event_alt",
+        )
+        definition = "legacy flat alternative CKD definition"
+        alt_events = int(alternative.ckd_event_alt.sum())
+
     return {
         "primary_hr": primary["hr"],
         "alternative_hr": alt_cox["hr"],
+        "alternative_events": alt_events,
+        "alternative_definition": definition,
         "absolute_difference": abs(primary["hr"] - alt_cox["hr"]),
     }
