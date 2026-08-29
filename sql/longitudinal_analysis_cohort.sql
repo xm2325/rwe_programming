@@ -67,7 +67,7 @@ eligible AS (
     AND e.egfr >= 45.0
     AND dx.baseline_ckd = 0
 ),
-first_event AS (
+first_primary AS (
   SELECT o.patient_id, MIN(o.outcome_date) AS event_date
   FROM outcomes o
   JOIN eligible e USING (patient_id)
@@ -75,11 +75,35 @@ first_event AS (
     AND o.outcome_date > e.index_date
     AND o.outcome_date <= e.followup_end
   GROUP BY o.patient_id
+),
+first_strict AS (
+  SELECT o.patient_id, MIN(o.outcome_date) AS event_date
+  FROM outcomes o
+  JOIN eligible e USING (patient_id)
+  WHERE o.outcome='INCIDENT_CKD_CONFIRM'
+    AND o.outcome_date > e.index_date
+    AND o.outcome_date <= e.followup_end
+  GROUP BY o.patient_id
+),
+first_negative AS (
+  SELECT o.patient_id, MIN(o.outcome_date) AS event_date
+  FROM outcomes o
+  JOIN eligible e USING (patient_id)
+  WHERE o.outcome='NEGATIVE_CONTROL'
+    AND o.outcome_date > e.index_date
+    AND o.outcome_date <= e.followup_end
+  GROUP BY o.patient_id
 )
 SELECT e.patient_id, e.age, e.female, e.diabetes, e.hypertension,
        e.egfr, e.baseline_urate, e.prior_flares, e.ucg,
-       (julianday(COALESCE(f.event_date, e.followup_end)) - julianday(e.index_date)) / 365.25 AS followup_years,
-       CASE WHEN f.event_date IS NULL THEN 0 ELSE 1 END AS ckd_event
+       (julianday(COALESCE(p.event_date, e.followup_end)) - julianday(e.index_date)) / 365.25 AS followup_years,
+       CASE WHEN p.event_date IS NULL THEN 0 ELSE 1 END AS ckd_event,
+       (julianday(COALESCE(s.event_date, e.followup_end)) - julianday(e.index_date)) / 365.25 AS ckd_strict_followup_years,
+       CASE WHEN s.event_date IS NULL THEN 0 ELSE 1 END AS ckd_strict_event,
+       (julianday(COALESCE(n.event_date, e.followup_end)) - julianday(e.index_date)) / 365.25 AS negative_followup_years,
+       CASE WHEN n.event_date IS NULL THEN 0 ELSE 1 END AS negative_event
 FROM eligible e
-LEFT JOIN first_event f USING (patient_id)
+LEFT JOIN first_primary p USING (patient_id)
+LEFT JOIN first_strict s USING (patient_id)
+LEFT JOIN first_negative n USING (patient_id)
 ORDER BY e.patient_id;
