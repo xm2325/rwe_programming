@@ -14,6 +14,8 @@ from .longitudinal import (
 CORE_COLUMNS = [
     "patient_id", "age", "female", "diabetes", "hypertension", "egfr",
     "baseline_urate", "prior_flares", "ucg", "followup_years", "ckd_event",
+    "ckd_strict_followup_years", "ckd_strict_event",
+    "negative_followup_years", "negative_event",
 ]
 
 
