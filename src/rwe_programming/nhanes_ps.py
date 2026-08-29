@@ -33,6 +33,7 @@ class NHANESPSDefinition:
     population: str = "Adults with doctor-diagnosed gout"
     exposure: str = "Current urate-lowering therapy use reported in the prescription-medication questionnaire"
     estimand: str = "Propensity-score overlap and covariate-balance demonstration; no causal treatment-effect claim"
+    ps_specification: str = "near-unpenalized logistic MLE on prespecified baseline covariates; survey-weighted logistic sensitivity fitted separately"
     gout_variable: str = "MCQ160N"
     age_variable: str = "RIDAGEYR"
     sex_variable: str = "RIAGENDR"
@@ -144,6 +145,30 @@ def _model_matrix(frame: pd.DataFrame, covariates: list[str]) -> pd.DataFrame:
     return pd.get_dummies(frame[covariates], columns=categorical, drop_first=False, dtype=float)
 
 
+def _standardize_matrix(x: pd.DataFrame) -> np.ndarray:
+    values = x.to_numpy(float)
+    mean = values.mean(axis=0)
+    scale = values.std(axis=0)
+    scale = np.where(scale > 0, scale, 1.0)
+    return (values - mean) / scale
+
+
+def _fit_ps(x: pd.DataFrame, y: pd.Series, sample_weight: np.ndarray | None = None) -> np.ndarray:
+    # C=1e6 approximates an unpenalised logistic MLE while retaining broad sklearn
+    # version compatibility. Standardisation avoids numerical scale artefacts.
+    model = LogisticRegression(C=1e6, max_iter=5000, solver="lbfgs")
+    model.fit(_standardize_matrix(x), y, sample_weight=sample_weight)
+    return np.clip(model.predict_proba(_standardize_matrix(x))[:, 1], 0.01, 0.99)
+
+
+def _stabilized_weights(y: pd.Series, ps: np.ndarray, treated_fraction: float) -> np.ndarray:
+    return np.where(
+        y.eq(1),
+        treated_fraction / ps,
+        (1.0 - treated_fraction) / (1.0 - ps),
+    )
+
+
 def fit_nhanes_propensity_score(
     frame: pd.DataFrame,
     covariates: list[str] | None = None,
@@ -159,20 +184,21 @@ def fit_nhanes_propensity_score(
         raise ValueError("Both treated and untreated gout patients are required to estimate a propensity score")
 
     x = _model_matrix(complete, covariates)
-    model = LogisticRegression(max_iter=3000)
-    model.fit(x, complete["ult_use"])
-    ps = np.clip(model.predict_proba(x)[:, 1], 0.01, 0.99)
-    treated_fraction = float(complete["ult_use"].mean())
-    sw = np.where(
-        complete["ult_use"].eq(1),
-        treated_fraction / ps,
-        (1.0 - treated_fraction) / (1.0 - ps),
-    )
+    y = complete["ult_use"]
+    ps = _fit_ps(x, y)
+    treated_fraction = float(y.mean())
     complete["propensity_score"] = ps
-    complete["stabilized_weight"] = sw
+    complete["stabilized_weight"] = _stabilized_weights(y, ps, treated_fraction)
+
     if "survey_weight" in complete.columns:
         survey = complete["survey_weight"].to_numpy(float)
-        combined = survey * sw
+        survey_fit_weight = survey / np.nanmean(survey)
+        survey_ps = _fit_ps(x, y, sample_weight=survey_fit_weight)
+        survey_treated_fraction = float(np.average(y.to_numpy(float), weights=survey))
+        survey_sw = _stabilized_weights(y, survey_ps, survey_treated_fraction)
+        combined = survey * survey_sw
+        complete["survey_propensity_score"] = survey_ps
+        complete["survey_stabilized_weight"] = survey_sw
         complete["survey_iptw_weight"] = combined / np.nanmean(combined)
     return complete.reset_index(drop=True)
 
@@ -240,7 +266,7 @@ def _ess(weights: pd.Series | np.ndarray) -> float:
 
 def nhanes_weight_diagnostics(frame: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    for name in ["stabilized_weight", "survey_iptw_weight"]:
+    for name in ["stabilized_weight", "survey_stabilized_weight", "survey_iptw_weight"]:
         if name not in frame.columns:
             continue
         w = frame[name].astype(float)
@@ -264,7 +290,7 @@ def nhanes_ps_diagnostics(frame: pd.DataFrame, covariates: list[str] | None = No
     untreated = frame.loc[frame.ult_use.eq(0), "propensity_score"]
     overlap_low = max(float(treated.min()), float(untreated.min()))
     overlap_high = min(float(treated.max()), float(untreated.max()))
-    return {
+    result = {
         "definition": NHANESPSDefinition().__dict__,
         "n_complete": int(len(frame)),
         "treated_n": int(frame["ult_use"].sum()),
@@ -281,6 +307,10 @@ def nhanes_ps_diagnostics(frame: pd.DataFrame, covariates: list[str] | None = No
         "causal_effect_claim": False,
         "interpretation": "Real NHANES treatment-model diagnostics only; cross-sectional timing does not support a longitudinal treatment-effect claim.",
     }
+    if "abs_smd_survey_iptw" in balance.columns:
+        result["max_abs_smd_survey_iptw"] = float(balance["abs_smd_survey_iptw"].max())
+        result["survey_iptw_effective_sample_size"] = _ess(frame["survey_iptw_weight"])
+    return result
 
 
 def nhanes_ps_qc_manifest(frame: pd.DataFrame) -> dict:
@@ -294,6 +324,8 @@ def nhanes_ps_qc_manifest(frame: pd.DataFrame) -> dict:
         ("RQ006", "Serum urate is not used in the default treatment propensity model", "serum_urate" not in PS_COVARIATES),
         ("RQ007", "Workflow makes no causal treatment-effect claim", diagnostics["causal_effect_claim"] is False),
     ]
+    if "survey_iptw_weight" in frame.columns:
+        checks.append(("RQ008", "Survey-weighted PS and combined survey×IPTW weights are finite and positive", bool(np.isfinite(frame.survey_propensity_score).all() and np.isfinite(frame.survey_iptw_weight).all() and (frame.survey_iptw_weight > 0).all())))
     manifest = {
         "status": "PASS" if all(passed for _, _, passed in checks) else "FAIL",
         "checks_total": len(checks),
