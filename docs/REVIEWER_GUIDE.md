@@ -48,9 +48,21 @@ Independent pandas/Python and SQLite SQL cohort builders implement the longitudi
 
 ## 5. Exposure and propensity-score estimand
 
-UCG is derived from baseline serum urate and/or baseline flare burden. The propensity model uses prespecified baseline covariates and produces stabilised IPTW. Balance is assessed with standardised mean differences and effective sample size (ESS).
+UCG is derived from baseline serum urate and/or baseline flare burden. This creates an important distinction between **variables that define the exposure phenotype** and **pre-exposure covariates used to model propensity**.
 
-The target is an IPTW pseudo-population comparison of UCG versus CG within this synthetic study population. Propensity scores are clipped only at the configured numerical guardrails; weight trimming is reported separately as a sensitivity analysis rather than silently changing the primary estimand.
+The prespecified synthetic PS adjustment set is:
+
+- age;
+- sex indicator;
+- baseline diabetes;
+- baseline hypertension;
+- baseline eGFR.
+
+`baseline_urate` and `prior_flares` remain visible in Table 1 because they are clinically informative baseline characteristics, but they are **not included in the PS model and are not subject to the post-weighting balance QC gate**, because they define UCG itself. Requiring them to balance would amount to conditioning the propensity model on the exposure definition and creates a deterministic-classification/positivity problem rather than a valid confounding adjustment strategy.
+
+The propensity model produces stabilised IPTW and balance QC is applied to the five-variable PS adjustment set using standardised mean differences (SMDs) and effective sample size (ESS). Propensity scores are clipped only at configured numerical guardrails; weight trimming is reported separately as a sensitivity analysis rather than silently changing the primary estimand.
+
+The old flat synthetic dataset is retained only as a regression/reference fixture. Its exposure assignment is stochastic with overlap and is deliberately distinct from the reviewer-facing longitudinal phenotype definition.
 
 ## 6. Outcomes
 
@@ -71,12 +83,13 @@ The target is an IPTW pseudo-population comparison of UCG versus CG within this 
 Reviewer-facing primary outputs are generated from the longitudinal source-derived cohort:
 
 - propensity-score estimation and stabilised IPTW;
-- weighted baseline balance and ESS;
+- weighted balance on the PS adjustment set and ESS;
+- reviewer-visible descriptive values for phenotype-defining baseline urate and flare burden;
 - explicit IPTW-weighted Breslow Cox partial likelihood;
 - case-weighted score-residual sandwich standard error conditional on the estimated IPTW;
 - model-based standard error retained separately;
 - weighted Kaplan–Meier point estimates and fixed-time survival summaries;
-- Table 1 balance, Table 2 outcomes and Table 3 primary effect.
+- Table 1 balance/descriptives, Table 2 outcomes and Table 3 primary effect.
 
 The custom weighted Cox risk-set implementation is reconciled numerically against a slower transparent Python reference implementation. A separate GitHub Actions workflow also performs an independent cross-language validation using R `survival::coxph(..., weights=..., ties="breslow", robust=TRUE, cluster=patient_id)` on a deterministic 2,000-patient source-derived analysis cohort.
 
@@ -89,11 +102,11 @@ The validated reconciliation is extremely close:
 - R robust SE: `0.245913823383128`;
 - absolute robust-SE difference: **3.93 × 10^-9**.
 
-The workflow now treats both coefficient and robust-SE reconciliation at `1e-6` tolerance as hard validation gates. A separate unweighted implementation remains reconciled against `statsmodels` PHReg as an additional reference check.
+The workflow treats both coefficient and robust-SE reconciliation at `1e-6` tolerance as hard validation gates. A separate unweighted implementation remains reconciled against `statsmodels` PHReg as an additional reference check.
 
 ## 8. Source-derived sensitivity suite
 
-The same longitudinal analysis cohort now drives:
+The same longitudinal analysis cohort drives:
 
 - 1st/99th-percentile weight-trimming sensitivity;
 - induced-missingness complete-case versus median-imputation sensitivity;
@@ -102,7 +115,7 @@ The same longitudinal analysis cohort now drives:
 - source-derived negative-control outcome analysis;
 - source-derived stricter/confirmed CKD phenotype analysis.
 
-These are no longer driven by the legacy flat synthetic cohort.
+These are no longer driven by the legacy flat synthetic cohort. Balance checks after weight trimming use the same prespecified PS adjustment set as the primary propensity model.
 
 ## 9. QC and reconciliation
 
@@ -149,10 +162,11 @@ The CI artifact removes participant-level rows before upload. NHANES is used for
 
 - Synthetic longitudinal results are not clinical findings and must never be presented as Amgen or proprietary RWD results.
 - NHANES 2017–2018 is cross-sectional for this use case and does not support the longitudinal CKD treatment-effect analysis implemented in the synthetic study layer.
+- The synthetic UCG comparison is a methods/programming estimand; because UCG is a phenotype rather than an intervention, causal-treatment language should be avoided.
 - The OMOP check is OMOP-shaped reconstruction, not certification of full OMOP CDM compliance.
 - The PH diagnostic is a screening diagnostic, not a complete formal weighted proportional-hazards testing framework.
 - The primary sandwich variance is conditional on the estimated IPTW and does not propagate propensity-model estimation uncertainty.
-- The independent R reconciliation validates the implemented weighted Breslow coefficient and case-weighted robust sandwich SE for the deterministic validation dataset; it does not by itself validate the scientific treatment assignment model or resolve uncertainty from PS estimation.
+- The independent R reconciliation validates the implemented weighted Breslow coefficient and case-weighted robust sandwich SE for the deterministic validation dataset; it does not by itself validate the scientific exposure model or resolve uncertainty from PS estimation.
 
 ## 12. What a reviewer should run first
 
