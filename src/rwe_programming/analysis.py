@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from .pipeline import COVARS, effective_sample_size, fit_weighted_cox, propensity_weights, weighted_smd
+from .pipeline import COVARS, PS_COVARS, effective_sample_size, fit_weighted_cox, propensity_weights, weighted_smd
 
 
 def prepare_weighted_analysis(df: pd.DataFrame) -> pd.DataFrame:
@@ -17,9 +17,14 @@ def prepare_weighted_analysis(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def summarise_analysis(df: pd.DataFrame) -> dict:
-    """Run the primary weighting/balance/survival-effect summary on any valid cohort."""
+    """Run the primary weighting/balance/survival-effect summary on any valid cohort.
+
+    The balance gate is defined on the actual propensity-score adjustment set.
+    Phenotype-defining baseline urate and prior flares remain reviewer-visible
+    descriptive variables but are not treated as pre-exposure confounders.
+    """
     weighted = prepare_weighted_analysis(df)
-    smds = {c: abs(weighted_smd(weighted, c)) for c in COVARS}
+    smds = {c: abs(weighted_smd(weighted, c)) for c in PS_COVARS}
     return {
         "n": int(len(weighted)),
         "treated_fraction": float(weighted.ucg.mean()),
