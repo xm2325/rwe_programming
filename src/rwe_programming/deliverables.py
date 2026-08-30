@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .analysis import prepare_weighted_analysis
-from .pipeline import COVARS, fit_weighted_cox, make_synthetic_cohort, weighted_smd
+from .pipeline import COVARS, PS_COVARS, fit_weighted_cox, make_synthetic_cohort, weighted_smd
 from .survival import survival_at_times, weighted_kaplan_meier
 
 
@@ -15,14 +15,17 @@ ANALYSIS_SPEC = {
     "population": "adult synthetic patients with gout; baseline eGFR >= 45; baseline CKD excluded from pre-index diagnosis history",
     "index_date": "synthetic cohort entry with a 365-day baseline lookback",
     "exposure": {"0": "controlled gout", "1": "uncontrolled gout"},
+    "exposure_definition": "uncontrolled-gout phenotype derived from baseline serum urate and prior flare burden",
     "primary_outcome": "incident CKD event strictly after time zero and within observed follow-up",
     "estimand": "hazard ratio for uncontrolled versus controlled gout in the IPTW pseudo-population",
     "confounding_adjustment": "stabilised inverse-probability-of-treatment weighting",
-    "propensity_covariates": COVARS,
+    "propensity_covariates": PS_COVARS,
+    "phenotype_defining_baseline_variables": ["baseline_urate", "prior_flares"],
+    "balance_qc_scope": "PS adjustment covariates only; phenotype-defining variables remain descriptive and are not required to balance",
     "survival_model": "IPTW-weighted Cox proportional hazards using an explicit weighted Breslow partial likelihood",
-    "uncertainty": "subject-level sandwich standard error conditional on the estimated IPTW for the primary Cox interval; model-based SE retained for comparison; non-parametric bootstrap sensitivity",
+    "uncertainty": "case-weighted score-residual sandwich standard error conditional on the estimated IPTW for the primary Cox interval; model-based SE retained for comparison; non-parametric bootstrap sensitivity",
     "weighted_survival": "IPTW Kaplan-Meier point estimates by exposure group; no naive Greenwood CI attached",
-    "independent_validation": "custom unweighted Breslow implementation reconciled against statsmodels PHReg on the supported unweighted estimand",
+    "independent_validation": "custom weighted Cox coefficient and robust SE independently reconciled against R survival::coxph; unweighted Breslow implementation also reconciled against statsmodels PHReg",
     "source_to_analysis": "Reviewer-bundle TLFs are generated from the cohort derived from longitudinal source tables; the legacy flat synthetic cohort is retained only for regression/reference validation.",
     "qc": [
         "patient-id uniqueness",
@@ -31,7 +34,7 @@ ANALYSIS_SPEC = {
         "time-zero and follow-up checks",
         "propensity bounds",
         "weight positivity",
-        "post-weighting SMD",
+        "post-weighting SMD on PS adjustment set",
         "effective sample size",
         "independent Cox reconciliation",
     ],
@@ -49,6 +52,8 @@ def table1_balance(df: pd.DataFrame) -> pd.DataFrame:
                 "n": len(g),
                 "mean": float(g[col].mean()),
                 "sd": float(g[col].std(ddof=1)),
+                "in_propensity_model": col in PS_COVARS,
+                "balance_qc_applicable": col in PS_COVARS,
             })
     out = pd.DataFrame(rows)
     smd = {c: abs(weighted_smd(df, c)) for c in COVARS}
