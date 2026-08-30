@@ -6,6 +6,7 @@ import pandas as pd
 
 from .pipeline import (
     COVARS,
+    PS_COVARS,
     effective_sample_size,
     fit_weighted_cox,
     make_synthetic_cohort,
@@ -125,7 +126,7 @@ def weight_trimming_sensitivity(df: pd.DataFrame | None = None) -> dict:
         "untrimmed_ess": effective_sample_size(base.stabilized_weight),
         "trimmed_ess": effective_sample_size(trimmed.trimmed_weight),
         "max_abs_smd_trimmed": max(
-            abs(weighted_smd(trimmed, c, "trimmed_weight")) for c in COVARS
+            abs(weighted_smd(trimmed, c, "trimmed_weight")) for c in PS_COVARS
         ),
     }
 
@@ -141,7 +142,7 @@ def negative_control_analysis(df: pd.DataFrame | None = None) -> dict:
         time_col="negative_followup_years",
         event_col="negative_event",
     )
-    result["outcome_definition"] = "source-derived NEGATIVE_CONTROL event"
+    result["outcome_definition"] = "source-derived NEGATIVE_CONTROL event" if df is not None else "legacy flat negative-control event"
     return result
 
 
