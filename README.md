@@ -8,6 +8,18 @@ This is a **restored/reconstructed** version of an earlier 2026 portfolio projec
 
 The repository separates **currently executable evidence** from **historical archived evidence**. It does not claim that every historical v0.5.x result has been reproduced byte-for-byte.
 
+## Start here — three pieces of evidence
+
+If you have only a few minutes, do not read the repository file by file. Start with these three reviewer outputs:
+
+1. **`longitudinal_builder_reconciliation.json`** — independent Python/pandas and SQLite SQL cohort builders are reconciled patient by patient from the longitudinal source domains. This is the clearest source-to-analysis programming/QC evidence.
+2. **`table1_balance.csv` + `table3_primary_effect.csv`** — the reviewer-facing source-derived PS/IPTW analysis, with the PS adjustment set explicitly separated from phenotype-defining urate/flare variables and robust/model-based Cox uncertainty reported separately.
+3. **`source_derived_sensitivity.json`** — trimming, missingness, bootstrap uncertainty, PH screening, negative control and stricter CKD phenotype analyses all run from the same longitudinal source-derived cohort.
+
+For independent statistical validation, inspect the dedicated **Independent R weighted Cox reconciliation** workflow. For real participant-data PS evidence, inspect the separate **NHANES real-data PS validation** workflow.
+
+For a 5–10 minute interview walkthrough, including likely technical questions and claims that should *not* be made, see [`docs/INTERVIEW_GUIDE.md`](docs/INTERVIEW_GUIDE.md).
+
 ## Current executable workflow — v0.10.0-restored
 
 ### 1. Longitudinal source-to-analysis construction
